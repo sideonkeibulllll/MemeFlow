@@ -1,7 +1,7 @@
 {
-  "name": "meme-random",
+  "name": "memeflow",
   "version": "1.0.0",
-  "description": "随机表情包展示器",
+  "description": "Your personal meme launcher. One click, instant reaction.",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -10,8 +10,8 @@
     "sync:android": "npm run prepare:web && npx cap sync android",
     "build:android": "npm run sync:android"
   },
-  "keywords": ["meme", "random"],
-  "author": "",
+  "keywords": ["meme", "random", "sticker", "emoji"],
+  "author": "sideonkeibulllll",
   "license": "MIT",
   "devDependencies": {
     "@capacitor/android": "^8.2.0",
@@ -26,8 +26,8 @@
     "adm-zip": "^0.5.16"
   },
   "build": {
-    "appId": "com.meme.random",
-    "productName": "随机表情包",
+    "appId": "com.memeflow.app",
+    "productName": "MemeFlow",
     "files": [
       "**/*",
       "!-qq-vv-awa/**",
