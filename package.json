@@ -1,0 +1,57 @@
+{
+  "name": "meme-random",
+  "version": "1.0.0",
+  "description": "随机表情包展示器",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win --x64",
+    "prepare:web": "node build-web.js",
+    "sync:android": "npm run prepare:web && npx cap sync android",
+    "build:android": "npm run sync:android"
+  },
+  "keywords": ["meme", "random"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@capacitor/android": "^8.2.0",
+    "@capacitor/cli": "^8.2.0",
+    "@capacitor/core": "^8.2.0",
+    "electron": "^40.8.0",
+    "electron-builder": "^26.8.1"
+  },
+  "dependencies": {
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/share": "^8.0.1",
+    "adm-zip": "^0.5.16"
+  },
+  "build": {
+    "appId": "com.meme.random",
+    "productName": "随机表情包",
+    "files": [
+      "**/*",
+      "!-qq-vv-awa/**",
+      "!web/**",
+      "!android/**",
+      "!assets/**"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "icon.ico",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

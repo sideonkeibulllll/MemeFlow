@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>随机表情包</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      height: 100vh;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    
+    .meme-grid {
+      flex: 1;
+      display: grid;
+      gap: 3px;
+      padding: 3px;
+      background: #e0e0e0;
+      min-height: 0;
+      overflow: hidden;
+    }
+    
+    .meme-item {
+      background: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      position: relative;
+    }
+    
+    .meme-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      object-position: center;
+    }
+    
+    .meme-weight {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      background: rgba(0,0,0,0.6);
+      color: white;
+      font-size: 0.65rem;
+      padding: 2px 5px;
+      border-radius: 4px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    
+    .meme-item:active .meme-weight {
+      opacity: 1;
+    }
+    
+    .meme-tag {
+      position: absolute;
+      bottom: 4px;
+      left: 4px;
+      background: rgba(0,0,0,0.6);
+      color: white;
+      font-size: 0.6rem;
+      padding: 2px 5px;
+      border-radius: 4px;
+      max-width: 80%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    
+    .meme-item:active .meme-tag {
+      opacity: 1;
+    }
+    
+    .bottom-bar {
+      display: flex;
+      background: #333;
+    }
+    
+    .bottom-bar button {
+      background: #333;
+      color: white;
+      border: none;
+      padding: 16px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    
+    .btn-search {
+      flex: 2;
+      border-right: 1px solid #555;
+    }
+    
+    .btn-refresh {
+      flex: 6;
+      border-right: 1px solid #555;
+    }
+    
+    .btn-settings {
+      flex: 2;
+    }
+    
+    .bottom-bar button:active {
+      background: #222;
+    }
+    
+    .mode-tag {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      background: #333;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      z-index: 50;
+      display: none;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    
+    .mode-tag.show {
+      display: block;
+    }
+    
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .modal.show {
+      display: flex;
+    }
+    
+    .modal-content {
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      width: 300px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    
+    .modal-content h2 {
+      margin-bottom: 14px;
+      font-size: 1.1rem;
+      font-weight: 500;
+    }
+    
+    .modal-section {
+      margin-bottom: 16px;
+    }
+    
+    .modal-section label {
+      display: block;
+      margin-bottom: 6px;
+      color: #666;
+      font-size: 0.9rem;
+    }
+    
+    .modal-section input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 1rem;
+    }
+    
+    .modal-section input:focus {
+      outline: none;
+      border-color: #333;
+    }
+    
+    .category-select {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    
+    .category-btn {
+      padding: 6px 12px;
+      border: 1px solid #ddd;
+      border-radius: 16px;
+      background: white;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .category-btn.selected {
+      background: #333;
+      color: white;
+      border-color: #333;
+    }
+    
+    .import-btn {
+      width: 100%;
+      padding: 10px;
+      background: #f0f0f0;
+      border: 1px dashed #999;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      color: #666;
+    }
+    
+    .modal-buttons {
+      display: flex;
+      gap: 8px;
+    }
+    
+    .modal-buttons button {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+    }
+    
+    .btn-cancel {
+      background: #eee;
+      color: #333;
+    }
+    
+    .btn-save {
+      background: #333;
+      color: white;
+    }
+    
+    .search-type-toggle {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    
+    .search-type-toggle button {
+      flex: 1;
+      padding: 8px;
+      border: 1px solid #ddd;
+      background: white;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    
+    .search-type-toggle button.active {
+      background: #333;
+      color: white;
+      border-color: #333;
+    }
+    
+    .category-filter-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    
+    .category-filter-btn {
+      padding: 10px 16px;
+      border: 2px solid #ddd;
+      border-radius: 20px;
+      background: white;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .category-filter-btn:active {
+      border-color: #333;
+      background: #f5f5f5;
+    }
+    
+    .search-results {
+      max-height: 250px;
+      overflow-y: auto;
+      border: 1px solid #eee;
+      border-radius: 8px;
+    }
+    
+    .search-result-item {
+      display: flex;
+      align-items: center;
+      padding: 10px;
+      cursor: pointer;
+      border-bottom: 1px solid #eee;
+    }
+    
+    .search-result-item:last-child {
+      border-bottom: none;
+    }
+    
+    .search-result-item:active {
+      background: #f5f5f5;
+    }
+    
+    .search-result-item img {
+      width: 50px;
+      height: 50px;
+      object-fit: contain;
+      margin-right: 12px;
+      border-radius: 4px;
+      background: #f0f0f0;
+    }
+    
+    .search-result-info {
+      flex: 1;
+      overflow: hidden;
+    }
+    
+    .search-result-name {
+      font-size: 0.85rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    
+    .search-result-tag {
+      font-size: 0.75rem;
+      color: #666;
+      margin-top: 2px;
+    }
+    
+    .search-result-category {
+      font-size: 0.7rem;
+      color: #999;
+      margin-top: 2px;
+    }
+    
+    .no-results {
+      padding: 20px;
+      text-align: center;
+      color: #999;
+    }
+    
+    .toast {
+      position: fixed;
+      bottom: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #333;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+      z-index: 200;
+    }
+    
+    .toast.show {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <button class="mode-tag" id="mode-tag">tags</button>
+  
+  <div class="meme-grid" id="meme-grid"></div>
+  
+  <div class="bottom-bar">
+    <button class="btn-search" id="search-btn">搜索</button>
+    <button class="btn-refresh" id="refresh-btn">刷新</button>
+    <button class="btn-settings" id="settings-btn">设置</button>
+  </div>
+  
+  <div class="modal" id="settings-modal">
+    <div class="modal-content">
+      <h2>设置</h2>
+      <div class="modal-section">
+        <label>排列方式 (行×列)</label>
+        <input type="text" id="grid-input" placeholder="如: 1x1, 2x2, 1x3" value="1x1">
+      </div>
+      <div class="modal-section">
+        <label>导入表情包 (zip)</label>
+        <button class="import-btn" id="import-btn">点击选择 zip 文件</button>
+      </div>
+      <div class="modal-buttons">
+        <button class="btn-cancel" id="cancel-btn">取消</button>
+        <button class="btn-save" id="save-btn">保存</button>
+      </div>
+    </div>
+  </div>
+  
+  <div class="modal" id="tag-modal">
+    <div class="modal-content">
+      <h2>编辑标签</h2>
+      <div class="modal-section">
+        <label>标签描述</label>
+        <input type="text" id="tag-input" placeholder="输入标签文字">
+      </div>
+      <div class="modal-section">
+        <label>分类</label>
+        <div class="category-select" id="category-select">
+          <button class="category-btn" data-category="happy">快乐/滑稽</button>
+          <button class="category-btn" data-category="sad">悲伤/委屈</button>
+          <button class="category-btn" data-category="shock">震惊/愤怒</button>
+          <button class="category-btn" data-category="social">阴阳怪气/社交</button>
+        </div>
+      </div>
+      <div class="modal-buttons">
+        <button class="btn-cancel" id="tag-cancel-btn">取消</button>
+        <button class="btn-save" id="tag-save-btn">保存</button>
+      </div>
+    </div>
+  </div>
+  
+  <div class="modal" id="search-modal">
+    <div class="modal-content">
+      <h2>搜索表情包</h2>
+      <div class="search-type-toggle">
+        <button id="search-type-tag" class="active">标签</button>
+        <button id="search-type-category">分类</button>
+      </div>
+      <div id="tag-search-section">
+        <div class="modal-section">
+          <input type="text" id="search-input" placeholder="输入标签搜索">
+        </div>
+        <div class="modal-section">
+          <div class="search-results" id="search-results">
+            <div class="no-results">输入关键词搜索</div>
+          </div>
+        </div>
+      </div>
+      <div id="category-search-section" style="display:none">
+        <div class="modal-section">
+          <label>选择分类</label>
+          <div class="category-filter-list">
+            <button class="category-filter-btn" data-category="happy">快乐/滑稽</button>
+            <button class="category-filter-btn" data-category="sad">悲伤/委屈</button>
+            <button class="category-filter-btn" data-category="shock">震惊/愤怒</button>
+            <button class="category-filter-btn" data-category="social">阴阳怪气/社交</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-buttons">
+        <button class="btn-cancel" id="search-close-btn">关闭</button>
+      </div>
+    </div>
+  </div>
+  
+  <div class="toast" id="toast"></div>
+
+  <script src="capacitor.js"></script>
+  <script src="jszip.min.js"></script>
+  <script>
+    let memes = []
+    let currentMemes = []
+    let gridConfig = { rows: 1, cols: 1 }
+    let weights = {}
+    let memeTags = {}
+    let currentTagEditIndex = -1
+    let searchType = 'tag'
+    let currentFilter = null
+    let longPressTimer = null
+    
+    const isAndroid = typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()
+    const { Share, Filesystem } = Capacitor.Plugins
+    
+    const categoryNames = {
+      happy: '快乐/滑稽',
+      sad: '悲伤/委屈',
+      shock: '震惊/愤怒',
+      social: '阴阳怪气/社交'
+    }
+    
+    function loadWeights() {
+      try {
+        const saved = localStorage.getItem('meme-weights')
+        if (saved) {
+          weights = JSON.parse(saved)
+        }
+      } catch (e) {
+        weights = {}
+      }
+    }
+    
+    function saveWeights() {
+      try {
+        localStorage.setItem('meme-weights', JSON.stringify(weights))
+      } catch (e) {}
+    }
+    
+    function loadTags() {
+      try {
+        const saved = localStorage.getItem('meme-tags')
+        if (saved) {
+          memeTags = JSON.parse(saved)
+        }
+      } catch (e) {
+        memeTags = {}
+      }
+    }
+    
+    function saveTags() {
+      try {
+        localStorage.setItem('meme-tags', JSON.stringify(memeTags))
+      } catch (e) {}
+    }
+    
+    async function loadMemes() {
+      try {
+        const result = await Filesystem.readdir({
+          path: 'assets',
+          directory: 'Data'
+        })
+        memes = result.files.filter(f => {
+          const ext = f.name.split('.').pop().toLowerCase()
+          return ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)
+        }).map(f => f.name)
+      } catch (e) {
+        try {
+          const response = await fetch('assets/memes.json')
+          memes = await response.json()
+        } catch (e2) {
+          memes = []
+        }
+      }
+    }
+    
+    function parseGridConfig(input) {
+      const match = input.trim().match(/^(\d+)\s*[xX×]\s*(\d+)$/)
+      if (match) {
+        return { rows: Math.min(Math.max(1, parseInt(match[1])), 4), cols: Math.min(Math.max(1, parseInt(match[2])), 4) }
+      }
+      return { rows: 1, cols: 1 }
+    }
+    
+    function renderGrid() {
+      const grid = document.getElementById('meme-grid')
+      const { rows, cols } = gridConfig
+      const total = rows * cols
+      
+      grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`
+      grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`
+      grid.innerHTML = ''
+      
+      currentMemes = []
+      
+      for (let i = 0; i < total; i++) {
+        const item = document.createElement('div')
+        item.className = 'meme-item'
+        item.dataset.index = i
+        
+        const img = document.createElement('img')
+        img.src = ''
+        item.appendChild(img)
+        
+        const weightLabel = document.createElement('div')
+        weightLabel.className = 'meme-weight'
+        weightLabel.textContent = '1'
+        item.appendChild(weightLabel)
+        
+        const tagLabel = document.createElement('div')
+        tagLabel.className = 'meme-tag'
+        tagLabel.textContent = ''
+        item.appendChild(tagLabel)
+        
+        item.addEventListener('click', () => shareMeme(i))
+        
+        item.addEventListener('touchstart', (e) => {
+          longPressTimer = setTimeout(() => {
+            e.preventDefault()
+            openTagModal(i)
+          }, 500)
+        }, { passive: true })
+        
+        item.addEventListener('touchend', () => {
+          if (longPressTimer) {
+            clearTimeout(longPressTimer)
+            longPressTimer = null
+          }
+        })
+        
+        item.addEventListener('touchmove', () => {
+          if (longPressTimer) {
+            clearTimeout(longPressTimer)
+            longPressTimer = null
+          }
+        })
+        
+        grid.appendChild(item)
+        currentMemes.push(null)
+      }
+    }
+    
+    function getRandomMeme(useWeight = true) {
+      let filteredMemes = memes
+      
+      if (currentFilter) {
+        filteredMemes = memes.filter(meme => {
+          const tag = memeTags[meme]
+          if (!tag) return false
+          
+          if (currentFilter.type === 'category') {
+            return tag.category === currentFilter.value
+          }
+          return false
+        })
+      }
+      
+      if (filteredMemes.length === 0) return null
+      
+      if (useWeight && Object.keys(weights).length > 0) {
+        const totalWeight = filteredMemes.reduce((sum, meme) => sum + (weights[meme] || 1), 0)
+        let random = Math.random() * totalWeight
+        
+        for (const meme of filteredMemes) {
+          random -= (weights[meme] || 1)
+          if (random <= 0) {
+            return meme
+          }
+        }
+      }
+      
+      return filteredMemes[Math.floor(Math.random() * filteredMemes.length)]
+    }
+    
+    async function refreshAll() {
+      const items = document.querySelectorAll('.meme-item')
+      const total = items.length
+      const hasPureRandom = total > 3 && !currentFilter
+      
+      for (let i = 0; i < total; i++) {
+        const img = items[i].querySelector('img')
+        const weightLabel = items[i].querySelector('.meme-weight')
+        const tagLabel = items[i].querySelector('.meme-tag')
+        img.style.opacity = '0.5'
+        
+        const useWeight = !(hasPureRandom && i === 0)
+        const memeName = getRandomMeme(useWeight)
+        currentMemes[i] = memeName
+        
+        if (!memeName) {
+          img.src = ''
+          img.style.opacity = '1'
+          weightLabel.textContent = '-'
+          tagLabel.textContent = ''
+          continue
+        }
+        
+        img.src = `assets/${memeName}?t=${Date.now()}-${i}`
+        
+        weightLabel.textContent = weights[memeName] || 1
+        
+        const tag = memeTags[memeName]
+        tagLabel.textContent = tag ? (tag.text || '') : ''
+        
+        img.onload = () => {
+          img.style.opacity = '1'
+        }
+      }
+    }
+    
+    function showToast(message) {
+      const toast = document.getElementById('toast')
+      toast.textContent = message
+      toast.classList.add('show')
+      setTimeout(() => toast.classList.remove('show'), 1500)
+    }
+    
+    async function shareMeme(index) {
+      const memeName = currentMemes[index]
+      if (!memeName) return
+      
+      weights[memeName] = (weights[memeName] || 1) + 1
+      saveWeights()
+      
+      const weightLabel = document.querySelectorAll('.meme-weight')[index]
+      weightLabel.textContent = weights[memeName]
+      
+      if (isAndroid) {
+        try {
+          const response = await fetch(`assets/${memeName}`)
+          const blob = await response.blob()
+          
+          const reader = new FileReader()
+          reader.onload = async () => {
+            try {
+              const base64Data = reader.result.split(',')[1]
+              const ext = memeName.split('.').pop().toLowerCase()
+              const fileName = `meme_${Date.now()}.${ext}`
+              
+              const result = await Filesystem.writeFile({
+                path: fileName,
+                data: base64Data,
+                directory: 'Cache'
+              })
+              
+              await Share.share({
+                title: '表情包',
+                url: result.uri
+              })
+            } catch (e) {
+              if (e.message !== 'User canceled share') {
+                showToast('分享失败: ' + (e.message || '未知错误'))
+              }
+            }
+          }
+          reader.readAsDataURL(blob)
+        } catch (e) {
+          showToast('读取文件失败')
+        }
+      }
+    }
+    
+    function openSettings() {
+      document.getElementById('grid-input').value = `${gridConfig.rows}x${gridConfig.cols}`
+      document.getElementById('settings-modal').classList.add('show')
+    }
+    
+    function closeSettings() {
+      document.getElementById('settings-modal').classList.remove('show')
+    }
+    
+    async function saveSettings() {
+      const input = document.getElementById('grid-input').value
+      const newConfig = parseGridConfig(input)
+      
+      if (newConfig.rows !== gridConfig.rows || newConfig.cols !== gridConfig.cols) {
+        gridConfig = newConfig
+        renderGrid()
+        refreshAll()
+      }
+      
+      closeSettings()
+    }
+    
+    function openTagModal(index) {
+      currentTagEditIndex = index
+      const memeName = currentMemes[index]
+      
+      document.querySelectorAll('#tag-modal .category-btn').forEach(btn => {
+        btn.classList.remove('selected')
+      })
+      
+      if (memeName) {
+        const tag = memeTags[memeName]
+        if (tag) {
+          document.getElementById('tag-input').value = tag.text || ''
+          if (tag.category) {
+            const btn = document.querySelector(`#tag-modal .category-btn[data-category="${tag.category}"]`)
+            if (btn) btn.classList.add('selected')
+          }
+        } else {
+          document.getElementById('tag-input').value = ''
+        }
+      } else {
+        document.getElementById('tag-input').value = ''
+      }
+      
+      document.getElementById('tag-modal').classList.add('show')
+    }
+    
+    function closeTagModal() {
+      document.getElementById('tag-modal').classList.remove('show')
+      currentTagEditIndex = -1
+    }
+    
+    function saveTag() {
+      if (currentTagEditIndex < 0) return
+      
+      const memeName = currentMemes[currentTagEditIndex]
+      if (!memeName) {
+        closeTagModal()
+        return
+      }
+      
+      const text = document.getElementById('tag-input').value.trim()
+      const selectedCategory = document.querySelector('#tag-modal .category-btn.selected')
+      const category = selectedCategory ? selectedCategory.dataset.category : null
+      
+      if (text || category) {
+        memeTags[memeName] = { text, category }
+      } else {
+        delete memeTags[memeName]
+      }
+      saveTags()
+      
+      const tagLabel = document.querySelectorAll('.meme-tag')[currentTagEditIndex]
+      tagLabel.textContent = text
+      
+      closeTagModal()
+      showToast('标签已保存')
+    }
+    
+    document.querySelectorAll('#tag-modal .category-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#tag-modal .category-btn').forEach(b => b.classList.remove('selected'))
+        btn.classList.add('selected')
+      })
+    })
+    
+    function openSearch() {
+      document.getElementById('search-input').value = ''
+      document.getElementById('search-results').innerHTML = '<div class="no-results">输入关键词搜索</div>'
+      setSearchType('tag')
+      document.getElementById('search-modal').classList.add('show')
+      setTimeout(() => document.getElementById('search-input').focus(), 100)
+    }
+    
+    function closeSearch() {
+      document.getElementById('search-modal').classList.remove('show')
+    }
+    
+    function setSearchType(type) {
+      searchType = type
+      document.getElementById('search-type-tag').classList.toggle('active', type === 'tag')
+      document.getElementById('search-type-category').classList.toggle('active', type === 'category')
+      document.getElementById('tag-search-section').style.display = type === 'tag' ? 'block' : 'none'
+      document.getElementById('category-search-section').style.display = type === 'category' ? 'block' : 'none'
+    }
+    
+    function performSearch() {
+      const query = document.getElementById('search-input').value.trim().toLowerCase()
+      const resultsDiv = document.getElementById('search-results')
+      
+      if (!query) {
+        resultsDiv.innerHTML = '<div class="no-results">输入关键词搜索</div>'
+        return
+      }
+      
+      let results = []
+      
+      for (const meme of memes) {
+        const tag = memeTags[meme] || null
+        
+        if (tag && tag.text && tag.text.toLowerCase().includes(query)) {
+          results.push({
+            name: meme,
+            tag: tag
+          })
+        }
+      }
+      
+      if (results.length === 0) {
+        resultsDiv.innerHTML = '<div class="no-results">没有找到匹配的表情包</div>'
+        return
+      }
+      
+      resultsDiv.innerHTML = results.map(r => `
+        <div class="search-result-item" data-meme="${r.name}">
+          <img src="assets/${r.name}?t=${Date.now()}">
+          <div class="search-result-info">
+            <div class="search-result-name">${r.name}</div>
+            <div class="search-result-tag">${r.tag?.text || '无标签'}</div>
+            <div class="search-result-category">${r.tag?.category ? categoryNames[r.tag.category] : ''}</div>
+          </div>
+        </div>
+      `).join('')
+      
+      resultsDiv.querySelectorAll('.search-result-item').forEach(item => {
+        item.addEventListener('click', () => {
+          showMemeFromSearch(item.dataset.meme)
+        })
+      })
+    }
+    
+    async function showMemeFromSearch(memeName) {
+      closeSearch()
+      
+      const items = document.querySelectorAll('.meme-item')
+      const img = items[0].querySelector('img')
+      const weightLabel = items[0].querySelector('.meme-weight')
+      const tagLabel = items[0].querySelector('.meme-tag')
+      
+      currentMemes[0] = memeName
+      img.src = `assets/${memeName}?t=${Date.now()}`
+      
+      weightLabel.textContent = weights[memeName] || 1
+      
+      const tag = memeTags[memeName]
+      tagLabel.textContent = tag ? (tag.text || '') : ''
+    }
+    
+    function selectCategory(category) {
+      currentFilter = { type: 'category', value: category }
+      document.getElementById('mode-tag').textContent = categoryNames[category]
+      document.getElementById('mode-tag').classList.add('show')
+      closeSearch()
+      refreshAll()
+    }
+    
+    function clearFilter() {
+      currentFilter = null
+      document.getElementById('mode-tag').textContent = 'tags'
+      document.getElementById('mode-tag').classList.remove('show')
+      refreshAll()
+    }
+    
+    async function importZip() {
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = '.zip'
+      input.onchange = async (e) => {
+        const file = e.target.files[0]
+        if (!file) return
+        
+        try {
+          const arrayBuffer = await file.arrayBuffer()
+          const zip = await JSZip.loadAsync(arrayBuffer)
+          let count = 0
+          
+          const validExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
+          
+          for (const [filename, zipEntry] of Object.entries(zip.files)) {
+            if (!zipEntry.dir) {
+              const ext = '.' + filename.split('.').pop().toLowerCase()
+              if (validExts.includes(ext)) {
+                const baseName = filename.split('/').pop()
+                const content = await zipEntry.async('base64')
+                
+                await Filesystem.writeFile({
+                  path: `assets/${baseName}`,
+                  data: content,
+                  directory: 'Data',
+                  recursive: true
+                })
+                count++
+              }
+            }
+          }
+          
+          await loadMemes()
+          showToast(`已导入 ${count} 张表情包`)
+          refreshAll()
+        } catch (e) {
+          showToast('导入失败: ' + e.message)
+        }
+      }
+      input.click()
+    }
+    
+    document.getElementById('refresh-btn').addEventListener('click', refreshAll)
+    document.getElementById('settings-btn').addEventListener('click', openSettings)
+    document.getElementById('cancel-btn').addEventListener('click', closeSettings)
+    document.getElementById('save-btn').addEventListener('click', saveSettings)
+    document.getElementById('import-btn').addEventListener('click', importZip)
+    
+    document.getElementById('tag-cancel-btn').addEventListener('click', closeTagModal)
+    document.getElementById('tag-save-btn').addEventListener('click', saveTag)
+    
+    document.getElementById('search-btn').addEventListener('click', openSearch)
+    document.getElementById('search-close-btn').addEventListener('click', closeSearch)
+    document.getElementById('search-type-tag').addEventListener('click', () => setSearchType('tag'))
+    document.getElementById('search-type-category').addEventListener('click', () => setSearchType('category'))
+    document.getElementById('search-input').addEventListener('input', performSearch)
+    document.getElementById('mode-tag').addEventListener('click', clearFilter)
+    
+    document.querySelectorAll('.category-filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selectCategory(btn.dataset.category)
+      })
+    })
+    
+    async function init() {
+      loadWeights()
+      loadTags()
+      await loadMemes()
+      renderGrid()
+      refreshAll()
+    }
+    
+    init()
+  </script>
+</body>
+</html>

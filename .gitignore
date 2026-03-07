@@ -1,0 +1,58 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+out/
+
+# Android
+android/.gradle/
+android/app/build/
+android/build/
+android/.idea/
+android/local.properties
+*.apk
+*.aab
+
+# Capacitor
+android/app/src/main/assets/public/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Test assets (large image collections)
+-qq-vv-awa/
+-qq-vv-awa.zip
+
+# Meme assets (user data, not for repo)
+assets/
+web/assets/
+
+# Stray images in root
+*.jpg
+*.png
+*.gif
+*.jpeg
+*.webp
+!icon.ico
+
+# Temporary files
+*.tmp
+*.temp

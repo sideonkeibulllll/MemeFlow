@@ -1,0 +1,862 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>随机表情包</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    
+    .meme-grid {
+      flex: 1;
+      display: grid;
+      gap: 4px;
+      padding: 4px;
+      background: #e0e0e0;
+      min-height: 0;
+      overflow: hidden;
+    }
+    
+    .meme-item {
+      background: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: opacity 0.2s;
+      overflow: hidden;
+      position: relative;
+    }
+    
+    .meme-item:hover {
+      opacity: 0.85;
+    }
+    
+    .meme-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      object-position: center;
+    }
+    
+    .meme-weight {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      background: rgba(0,0,0,0.6);
+      color: white;
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    
+    .meme-item:hover .meme-weight {
+      opacity: 1;
+    }
+    
+    .meme-tag {
+      position: absolute;
+      bottom: 4px;
+      left: 4px;
+      background: rgba(0,0,0,0.6);
+      color: white;
+      font-size: 0.65rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      max-width: 80%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    
+    .meme-item:hover .meme-tag {
+      opacity: 1;
+    }
+    
+    .bottom-bar {
+      display: flex;
+      background: #333;
+    }
+    
+    .bottom-bar button {
+      background: #333;
+      color: white;
+      border: none;
+      padding: 14px;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    
+    .bottom-bar button:hover {
+      background: #444;
+    }
+    
+    .bottom-bar button:active {
+      background: #222;
+    }
+    
+    .btn-search {
+      flex: 2;
+      border-right: 1px solid #555;
+    }
+    
+    .btn-refresh {
+      flex: 6;
+      border-right: 1px solid #555;
+    }
+    
+    .btn-settings {
+      flex: 2;
+    }
+    
+    .mode-tag {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      background: #333;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      z-index: 50;
+      display: none;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    
+    .mode-tag.show {
+      display: block;
+    }
+    
+    .mode-tag:hover {
+      background: #555;
+    }
+    
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    
+    .modal.show {
+      display: flex;
+    }
+    
+    .modal-content {
+      background: white;
+      padding: 24px;
+      border-radius: 12px;
+      width: 340px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    
+    .modal-content h2 {
+      margin-bottom: 16px;
+      font-size: 1.2rem;
+      font-weight: 500;
+    }
+    
+    .modal-section {
+      margin-bottom: 20px;
+    }
+    
+    .modal-section label {
+      display: block;
+      margin-bottom: 8px;
+      color: #666;
+      font-size: 0.9rem;
+    }
+    
+    .modal-section input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 1rem;
+    }
+    
+    .modal-section input:focus {
+      outline: none;
+      border-color: #333;
+    }
+    
+    .category-select {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    
+    .category-btn {
+      padding: 6px 12px;
+      border: 1px solid #ddd;
+      border-radius: 16px;
+      background: white;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .category-btn:hover {
+      border-color: #333;
+    }
+    
+    .category-btn.selected {
+      background: #333;
+      color: white;
+      border-color: #333;
+    }
+    
+    .import-btn {
+      width: 100%;
+      padding: 10px;
+      background: #f0f0f0;
+      border: 1px dashed #999;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      color: #666;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .import-btn:hover {
+      background: #e8e8e8;
+      border-color: #666;
+    }
+    
+    .modal-buttons {
+      display: flex;
+      gap: 8px;
+    }
+    
+    .modal-buttons button {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    
+    .btn-cancel {
+      background: #eee;
+      color: #333;
+    }
+    
+    .btn-save {
+      background: #333;
+      color: white;
+    }
+    
+    .search-type-toggle {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    
+    .search-type-toggle button {
+      flex: 1;
+      padding: 8px;
+      border: 1px solid #ddd;
+      background: white;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    
+    .search-type-toggle button.active {
+      background: #333;
+      color: white;
+      border-color: #333;
+    }
+    
+    .category-filter-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 8px;
+    }
+    
+    .category-filter-btn {
+      padding: 10px 16px;
+      border: 2px solid #ddd;
+      border-radius: 20px;
+      background: white;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .category-filter-btn:hover {
+      border-color: #333;
+      background: #f5f5f5;
+    }
+    
+    .search-results {
+      max-height: 300px;
+      overflow-y: auto;
+      border: 1px solid #eee;
+      border-radius: 8px;
+    }
+    
+    .search-result-item {
+      display: flex;
+      align-items: center;
+      padding: 10px;
+      cursor: pointer;
+      border-bottom: 1px solid #eee;
+      transition: background 0.2s;
+    }
+    
+    .search-result-item:last-child {
+      border-bottom: none;
+    }
+    
+    .search-result-item:hover {
+      background: #f5f5f5;
+    }
+    
+    .search-result-item img {
+      width: 50px;
+      height: 50px;
+      object-fit: contain;
+      margin-right: 12px;
+      border-radius: 4px;
+      background: #f0f0f0;
+    }
+    
+    .search-result-info {
+      flex: 1;
+      overflow: hidden;
+    }
+    
+    .search-result-name {
+      font-size: 0.85rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    
+    .search-result-tag {
+      font-size: 0.75rem;
+      color: #666;
+      margin-top: 2px;
+    }
+    
+    .search-result-category {
+      font-size: 0.7rem;
+      color: #999;
+      margin-top: 2px;
+    }
+    
+    .no-results {
+      padding: 20px;
+      text-align: center;
+      color: #999;
+    }
+    
+    .toast {
+      position: fixed;
+      bottom: 70px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #333;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+    }
+    
+    .toast.show {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <button class="mode-tag" id="mode-tag" onclick="clearFilter()">tags</button>
+  
+  <div class="meme-grid" id="meme-grid"></div>
+  
+  <div class="bottom-bar">
+    <button class="btn-search" onclick="openSearch()">搜索</button>
+    <button class="btn-refresh" onclick="refreshAll()">刷新</button>
+    <button class="btn-settings" onclick="openSettings()">设置</button>
+  </div>
+  
+  <div class="modal" id="settings-modal">
+    <div class="modal-content">
+      <h2>设置</h2>
+      <div class="modal-section">
+        <label>排列方式 (行×列)</label>
+        <input type="text" id="grid-input" placeholder="如: 1x1, 2x2, 1x3" value="1x1">
+      </div>
+      <div class="modal-section">
+        <label>导入表情包 (zip)</label>
+        <button class="import-btn" onclick="importZip()">点击选择 zip 文件</button>
+      </div>
+      <div class="modal-buttons">
+        <button class="btn-cancel" onclick="closeSettings()">取消</button>
+        <button class="btn-save" onclick="saveSettings()">保存</button>
+      </div>
+    </div>
+  </div>
+  
+  <div class="modal" id="tag-modal">
+    <div class="modal-content">
+      <h2>编辑标签</h2>
+      <div class="modal-section">
+        <label>标签描述</label>
+        <input type="text" id="tag-input" placeholder="输入标签文字">
+      </div>
+      <div class="modal-section">
+        <label>分类</label>
+        <div class="category-select" id="category-select">
+          <button class="category-btn" data-category="happy">快乐/滑稽</button>
+          <button class="category-btn" data-category="sad">悲伤/委屈</button>
+          <button class="category-btn" data-category="shock">震惊/愤怒</button>
+          <button class="category-btn" data-category="social">阴阳怪气/社交</button>
+        </div>
+      </div>
+      <div class="modal-buttons">
+        <button class="btn-cancel" onclick="closeTagModal()">取消</button>
+        <button class="btn-save" onclick="saveTag()">保存</button>
+      </div>
+    </div>
+  </div>
+  
+  <div class="modal" id="search-modal">
+    <div class="modal-content">
+      <h2>搜索表情包</h2>
+      <div class="search-type-toggle">
+        <button id="search-type-tag" class="active" onclick="setSearchType('tag')">标签</button>
+        <button id="search-type-category" onclick="setSearchType('category')">分类</button>
+      </div>
+      <div id="tag-search-section">
+        <div class="modal-section">
+          <input type="text" id="search-input" placeholder="输入标签搜索" oninput="performSearch()">
+        </div>
+        <div class="modal-section">
+          <div class="search-results" id="search-results">
+            <div class="no-results">输入关键词搜索</div>
+          </div>
+        </div>
+      </div>
+      <div id="category-search-section" style="display:none">
+        <div class="modal-section">
+          <label>选择分类</label>
+          <div class="category-filter-list">
+            <button class="category-filter-btn" onclick="selectCategory('happy')">快乐/滑稽</button>
+            <button class="category-filter-btn" onclick="selectCategory('sad')">悲伤/委屈</button>
+            <button class="category-filter-btn" onclick="selectCategory('shock')">震惊/愤怒</button>
+            <button class="category-filter-btn" onclick="selectCategory('social')">阴阳怪气/社交</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-buttons">
+        <button class="btn-cancel" onclick="closeSearch()">关闭</button>
+      </div>
+    </div>
+  </div>
+  
+  <div class="toast" id="toast">已复制到剪贴板</div>
+  <input type="file" id="zip-input" accept=".zip" style="display:none">
+
+  <script>
+    const { ipcRenderer, clipboard, nativeImage } = require('electron')
+    
+    let currentMemes = []
+    let gridConfig = { rows: 1, cols: 1 }
+    let isSpacePressed = false
+    let currentTagEditIndex = -1
+    let searchType = 'tag'
+    let currentFilter = null
+    
+    const categoryNames = {
+      happy: '快乐/滑稽',
+      sad: '悲伤/委屈',
+      shock: '震惊/愤怒',
+      social: '阴阳怪气/社交'
+    }
+    
+    function parseGridConfig(input) {
+      const match = input.trim().match(/^(\d+)\s*[xX×]\s*(\d+)$/)
+      if (match) {
+        return { rows: Math.min(Math.max(1, parseInt(match[1])), 4), cols: Math.min(Math.max(1, parseInt(match[2])), 4) }
+      }
+      return { rows: 1, cols: 1 }
+    }
+    
+    function renderGrid() {
+      const grid = document.getElementById('meme-grid')
+      const { rows, cols } = gridConfig
+      const total = rows * cols
+      
+      grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`
+      grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`
+      grid.innerHTML = ''
+      
+      currentMemes = []
+      
+      for (let i = 0; i < total; i++) {
+        const item = document.createElement('div')
+        item.className = 'meme-item'
+        item.dataset.index = i
+        
+        const img = document.createElement('img')
+        img.src = ''
+        item.appendChild(img)
+        
+        const weightLabel = document.createElement('div')
+        weightLabel.className = 'meme-weight'
+        weightLabel.textContent = '1'
+        item.appendChild(weightLabel)
+        
+        const tagLabel = document.createElement('div')
+        tagLabel.className = 'meme-tag'
+        tagLabel.textContent = ''
+        item.appendChild(tagLabel)
+        
+        item.addEventListener('click', () => copyMeme(i))
+        item.addEventListener('contextmenu', (e) => {
+          e.preventDefault()
+          openTagModal(i)
+        })
+        
+        grid.appendChild(item)
+        currentMemes.push(null)
+      }
+    }
+    
+    async function refreshAll() {
+      const items = document.querySelectorAll('.meme-item')
+      const total = items.length
+      const hasPureRandom = total > 3 && !currentFilter
+      
+      for (let i = 0; i < total; i++) {
+        const img = items[i].querySelector('img')
+        const weightLabel = items[i].querySelector('.meme-weight')
+        const tagLabel = items[i].querySelector('.meme-tag')
+        img.style.opacity = '0.5'
+        
+        const useWeight = !(hasPureRandom && i === 0)
+        const memePath = await ipcRenderer.invoke('get-random-meme', useWeight, currentFilter)
+        
+        if (!memePath) {
+          img.src = ''
+          img.style.opacity = '1'
+          weightLabel.textContent = '-'
+          tagLabel.textContent = ''
+          currentMemes[i] = null
+          continue
+        }
+        
+        currentMemes[i] = memePath
+        img.src = `file://${memePath}?t=${Date.now()}-${i}`
+        
+        const weight = await ipcRenderer.invoke('get-weight', memePath)
+        weightLabel.textContent = weight
+        
+        const tag = await ipcRenderer.invoke('get-tag', memePath)
+        tagLabel.textContent = tag ? (tag.text || '') : ''
+        
+        img.onload = () => {
+          img.style.opacity = '1'
+        }
+      }
+    }
+    
+    async function copyMeme(index) {
+      const memePath = currentMemes[index]
+      if (!memePath) return
+      
+      try {
+        const nativeImg = nativeImage.createFromPath(memePath)
+        if (!nativeImg.isEmpty()) {
+          clipboard.writeImage(nativeImg)
+          
+          await ipcRenderer.invoke('increase-weight', memePath)
+          
+          const weightLabel = document.querySelectorAll('.meme-weight')[index]
+          const newWeight = await ipcRenderer.invoke('get-weight', memePath)
+          weightLabel.textContent = newWeight
+          
+          showToast('已复制到剪贴板')
+        }
+      } catch (e) {
+        showToast('复制失败')
+      }
+    }
+    
+    function showToast(message) {
+      const toast = document.getElementById('toast')
+      toast.textContent = message
+      toast.classList.add('show')
+      setTimeout(() => toast.classList.remove('show'), 1500)
+    }
+    
+    function openSettings() {
+      document.getElementById('grid-input').value = `${gridConfig.rows}x${gridConfig.cols}`
+      document.getElementById('settings-modal').classList.add('show')
+    }
+    
+    function closeSettings() {
+      document.getElementById('settings-modal').classList.remove('show')
+    }
+    
+    function saveSettings() {
+      const input = document.getElementById('grid-input').value
+      const newConfig = parseGridConfig(input)
+      
+      if (newConfig.rows !== gridConfig.rows || newConfig.cols !== gridConfig.cols) {
+        gridConfig = newConfig
+        renderGrid()
+        refreshAll()
+      }
+      
+      closeSettings()
+    }
+    
+    function importZip() {
+      document.getElementById('zip-input').click()
+    }
+    
+    document.getElementById('zip-input').addEventListener('change', async (e) => {
+      const file = e.target.files[0]
+      if (!file) return
+      
+      try {
+        const result = await ipcRenderer.invoke('import-zip', file.path)
+        if (result.success) {
+          showToast(`已导入 ${result.count} 张表情包`)
+          refreshAll()
+        } else {
+          showToast(result.error || '导入失败')
+        }
+      } catch (e) {
+        showToast('导入失败')
+      }
+      
+      e.target.value = ''
+    })
+    
+    function openTagModal(index) {
+      currentTagEditIndex = index
+      const memePath = currentMemes[index]
+      
+      document.querySelectorAll('#tag-modal .category-btn').forEach(btn => {
+        btn.classList.remove('selected')
+      })
+      
+      if (memePath) {
+        ipcRenderer.invoke('get-tag', memePath).then(tag => {
+          if (tag) {
+            document.getElementById('tag-input').value = tag.text || ''
+            if (tag.category) {
+              const btn = document.querySelector(`#tag-modal .category-btn[data-category="${tag.category}"]`)
+              if (btn) btn.classList.add('selected')
+            }
+          } else {
+            document.getElementById('tag-input').value = ''
+          }
+        })
+      } else {
+        document.getElementById('tag-input').value = ''
+      }
+      
+      document.getElementById('tag-modal').classList.add('show')
+    }
+    
+    function closeTagModal() {
+      document.getElementById('tag-modal').classList.remove('show')
+      currentTagEditIndex = -1
+    }
+    
+    async function saveTag() {
+      if (currentTagEditIndex < 0) return
+      
+      const memePath = currentMemes[currentTagEditIndex]
+      if (!memePath) {
+        closeTagModal()
+        return
+      }
+      
+      const text = document.getElementById('tag-input').value.trim()
+      const selectedCategory = document.querySelector('#tag-modal .category-btn.selected')
+      const category = selectedCategory ? selectedCategory.dataset.category : null
+      
+      await ipcRenderer.invoke('set-tag', memePath, { text, category })
+      
+      const tagLabel = document.querySelectorAll('.meme-tag')[currentTagEditIndex]
+      tagLabel.textContent = text
+      
+      closeTagModal()
+      showToast('标签已保存')
+    }
+    
+    document.querySelectorAll('#tag-modal .category-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#tag-modal .category-btn').forEach(b => b.classList.remove('selected'))
+        btn.classList.add('selected')
+      })
+    })
+    
+    function openSearch() {
+      document.getElementById('search-input').value = ''
+      document.getElementById('search-results').innerHTML = '<div class="no-results">输入关键词搜索</div>'
+      setSearchType('tag')
+      document.getElementById('search-modal').classList.add('show')
+      setTimeout(() => document.getElementById('search-input').focus(), 100)
+    }
+    
+    function closeSearch() {
+      document.getElementById('search-modal').classList.remove('show')
+    }
+    
+    function setSearchType(type) {
+      searchType = type
+      document.getElementById('search-type-tag').classList.toggle('active', type === 'tag')
+      document.getElementById('search-type-category').classList.toggle('active', type === 'category')
+      document.getElementById('tag-search-section').style.display = type === 'tag' ? 'block' : 'none'
+      document.getElementById('category-search-section').style.display = type === 'category' ? 'block' : 'none'
+    }
+    
+    async function performSearch() {
+      const query = document.getElementById('search-input').value.trim().toLowerCase()
+      const resultsDiv = document.getElementById('search-results')
+      
+      if (!query) {
+        resultsDiv.innerHTML = '<div class="no-results">输入关键词搜索</div>'
+        return
+      }
+      
+      const results = await ipcRenderer.invoke('search-memes', 'tag', query)
+      
+      if (results.length === 0) {
+        resultsDiv.innerHTML = '<div class="no-results">没有找到匹配的表情包</div>'
+        return
+      }
+      
+      resultsDiv.innerHTML = results.map(r => `
+        <div class="search-result-item" data-path="${r.path}" data-name="${r.name}">
+          <img src="file://${r.path}?t=${Date.now()}">
+          <div class="search-result-info">
+            <div class="search-result-name">${r.name}</div>
+            <div class="search-result-tag">${r.tag?.text || '无标签'}</div>
+            <div class="search-result-category">${r.tag?.category ? categoryNames[r.tag.category] : ''}</div>
+          </div>
+        </div>
+      `).join('')
+      
+      resultsDiv.querySelectorAll('.search-result-item').forEach(item => {
+        item.addEventListener('click', () => {
+          showMemeFromSearch(item.dataset.path)
+        })
+      })
+    }
+    
+    async function showMemeFromSearch(memePath) {
+      closeSearch()
+      
+      const items = document.querySelectorAll('.meme-item')
+      const img = items[0].querySelector('img')
+      const weightLabel = items[0].querySelector('.meme-weight')
+      const tagLabel = items[0].querySelector('.meme-tag')
+      
+      currentMemes[0] = memePath
+      img.src = `file://${memePath}?t=${Date.now()}`
+      
+      const weight = await ipcRenderer.invoke('get-weight', memePath)
+      weightLabel.textContent = weight
+      
+      const tag = await ipcRenderer.invoke('get-tag', memePath)
+      tagLabel.textContent = tag ? (tag.text || '') : ''
+    }
+    
+    function selectCategory(category) {
+      currentFilter = { type: 'category', value: category }
+      document.getElementById('mode-tag').textContent = categoryNames[category]
+      document.getElementById('mode-tag').classList.add('show')
+      closeSearch()
+      refreshAll()
+    }
+    
+    function clearFilter() {
+      currentFilter = null
+      document.getElementById('mode-tag').textContent = 'tags'
+      document.getElementById('mode-tag').classList.remove('show')
+      refreshAll()
+    }
+    
+    let refreshInterval = null
+    
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && !isSpacePressed) {
+        e.preventDefault()
+        isSpacePressed = true
+        refreshAll()
+        refreshInterval = setInterval(refreshAll, 1000)
+      }
+      
+      if (e.code === 'KeyS' && !e.ctrlKey && !e.metaKey) {
+        const tagModal = document.getElementById('tag-modal')
+        const searchModal = document.getElementById('search-modal')
+        const settingsModal = document.getElementById('settings-modal')
+        
+        if (!tagModal.classList.contains('show') && 
+            !searchModal.classList.contains('show') && 
+            !settingsModal.classList.contains('show')) {
+          e.preventDefault()
+          openSearch()
+        }
+      }
+    })
+    
+    document.addEventListener('keyup', (e) => {
+      if (e.code === 'Space') {
+        isSpacePressed = false
+        if (refreshInterval) {
+          clearInterval(refreshInterval)
+          refreshInterval = null
+        }
+      }
+    })
+    
+    async function init() {
+      renderGrid()
+      refreshAll()
+    }
+    
+    init()
+  </script>
+</body>
+</html>
