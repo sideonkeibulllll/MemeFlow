@@ -38,7 +38,7 @@
 
 📦 **Easy Import** — Drag & drop ZIP files to bulk import your meme collection.
 
-📱 **Cross-Platform** — Desktop (Windows) today, Android tomorrow. Same experience, everywhere.
+📱 **Cross-Platform** — Desktop (Windows) today, Android today too. Same experience, everywhere.
 
 ⌨️ **Keyboard Friendly** — Hold `Space` to auto-refresh, `S` to search. Power user approved.
 
