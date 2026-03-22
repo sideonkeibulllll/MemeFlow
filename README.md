@@ -26,6 +26,16 @@
 
 ---
 
+## What's New in v1.1
+
+🔧 **Android Compatibility Fix** — Now fully compatible with Android 8.1+ (API 27+). Rewrote JavaScript to ES5 for broader WebView support.
+
+⚡ **Performance Improvements** — Optimized meme loading and rendering pipeline.
+
+🐛 **Bug Fixes** — Fixed ZIP import counter, resolved script loading issues on older Android devices.
+
+---
+
 ## Features
 
 🚀 **Lightning Fast** — Click to copy, paste to chat. No more digging through folders.

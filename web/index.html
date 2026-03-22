@@ -15,7 +15,6 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: #f5f5f5;
       height: 100vh;
-      height: 100dvh;
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -374,9 +373,28 @@
     .toast.show {
       opacity: 1;
     }
+    
+    #debug-panel {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      background: #ff0;
+      color: #000;
+      padding: 10px;
+      font-size: 12px;
+      z-index: 9999;
+      max-height: 50vh;
+      overflow-y: auto;
+      word-break: break-all;
+    }
   </style>
 </head>
 <body>
+  <div id="debug-panel">
+    <div id="debug-log">Loading...</div>
+  </div>
+  
   <button class="mode-tag" id="mode-tag">tags</button>
   
   <div class="meme-grid" id="meme-grid"></div>
@@ -464,23 +482,23 @@
   
   <div class="toast" id="toast"></div>
 
-  <script src="capacitor.js"></script>
   <script src="jszip.min.js"></script>
   <script>
-    let memes = []
-    let currentMemes = []
-    let gridConfig = { rows: 1, cols: 1 }
-    let weights = {}
-    let memeTags = {}
-    let currentTagEditIndex = -1
-    let searchType = 'tag'
-    let currentFilter = null
-    let longPressTimer = null
+    var memes = []
+    var currentMemes = []
+    var gridConfig = { rows: 1, cols: 1 }
+    var weights = {}
+    var memeTags = {}
+    var currentTagEditIndex = -1
+    var searchType = 'tag'
+    var currentFilter = null
+    var longPressTimer = null
     
-    const isAndroid = typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()
-    const { Share, Filesystem } = Capacitor.Plugins
+    var isAndroid = typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()
+    var Share = isAndroid ? Capacitor.Plugins.Share : null
+    var Filesystem = isAndroid ? Capacitor.Plugins.Filesystem : null
     
-    const categoryNames = {
+    var categoryNames = {
       happy: '快乐/滑稽',
       sad: '悲伤/委屈',
       shock: '震惊/愤怒',
@@ -489,7 +507,7 @@
     
     function loadWeights() {
       try {
-        const saved = localStorage.getItem('meme-weights')
+        var saved = localStorage.getItem('meme-weights')
         if (saved) {
           weights = JSON.parse(saved)
         }
@@ -506,7 +524,7 @@
     
     function loadTags() {
       try {
-        const saved = localStorage.getItem('meme-tags')
+        var saved = localStorage.getItem('meme-tags')
         if (saved) {
           memeTags = JSON.parse(saved)
         }
@@ -522,27 +540,29 @@
     }
     
     async function loadMemes() {
-      try {
-        const result = await Filesystem.readdir({
-          path: 'assets',
-          directory: 'Data'
-        })
-        memes = result.files.filter(f => {
-          const ext = f.name.split('.').pop().toLowerCase()
-          return ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)
-        }).map(f => f.name)
-      } catch (e) {
+      if (isAndroid && Filesystem) {
         try {
-          const response = await fetch('assets/memes.json')
-          memes = await response.json()
-        } catch (e2) {
-          memes = []
-        }
+          var result = await Filesystem.readdir({
+            path: 'assets',
+            directory: 'Data'
+          })
+          memes = result.files.filter(function(f) {
+            var ext = f.name.split('.').pop().toLowerCase()
+            return ['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(ext) >= 0
+          }).map(function(f) { return f.name })
+          return
+        } catch (e) {}
+      }
+      try {
+        var response = await fetch('assets/memes.json')
+        memes = await response.json()
+      } catch (e) {
+        memes = []
       }
     }
     
     function parseGridConfig(input) {
-      const match = input.trim().match(/^(\d+)\s*[xX×]\s*(\d+)$/)
+      var match = input.trim().match(/^(\d+)\s*[xX×]\s*(\d+)$/)
       if (match) {
         return { rows: Math.min(Math.max(1, parseInt(match[1])), 4), cols: Math.min(Math.max(1, parseInt(match[2])), 4) }
       }
@@ -550,71 +570,52 @@
     }
     
     function renderGrid() {
-      const grid = document.getElementById('meme-grid')
-      const { rows, cols } = gridConfig
-      const total = rows * cols
+      var grid = document.getElementById('meme-grid')
+      var rows = gridConfig.rows
+      var cols = gridConfig.cols
+      var total = rows * cols
       
-      grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`
-      grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`
+      grid.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)'
+      grid.style.gridTemplateRows = 'repeat(' + rows + ', 1fr)'
       grid.innerHTML = ''
       
       currentMemes = []
       
-      for (let i = 0; i < total; i++) {
-        const item = document.createElement('div')
+      for (var i = 0; i < total; i++) {
+        var item = document.createElement('div')
         item.className = 'meme-item'
         item.dataset.index = i
         
-        const img = document.createElement('img')
+        var img = document.createElement('img')
         img.src = ''
         item.appendChild(img)
         
-        const weightLabel = document.createElement('div')
+        var weightLabel = document.createElement('div')
         weightLabel.className = 'meme-weight'
         weightLabel.textContent = '1'
         item.appendChild(weightLabel)
         
-        const tagLabel = document.createElement('div')
+        var tagLabel = document.createElement('div')
         tagLabel.className = 'meme-tag'
         tagLabel.textContent = ''
         item.appendChild(tagLabel)
         
-        item.addEventListener('click', () => shareMeme(i))
-        
-        item.addEventListener('touchstart', (e) => {
-          longPressTimer = setTimeout(() => {
-            e.preventDefault()
-            openTagModal(i)
-          }, 500)
-        }, { passive: true })
-        
-        item.addEventListener('touchend', () => {
-          if (longPressTimer) {
-            clearTimeout(longPressTimer)
-            longPressTimer = null
-          }
-        })
-        
-        item.addEventListener('touchmove', () => {
-          if (longPressTimer) {
-            clearTimeout(longPressTimer)
-            longPressTimer = null
-          }
-        })
+        item.addEventListener('click', function(idx) {
+          return function() { shareMeme(idx) }
+        }(i))
         
         grid.appendChild(item)
         currentMemes.push(null)
       }
     }
     
-    function getRandomMeme(useWeight = true) {
-      let filteredMemes = memes
+    function getRandomMeme(useWeight) {
+      var filteredMemes = memes
       
       if (currentFilter) {
-        filteredMemes = memes.filter(meme => {
-          const tag = memeTags[meme]
+        filteredMemes = memes.filter(function(meme) {
+          var tag = memeTags[meme]
           if (!tag) return false
-          
           if (currentFilter.type === 'category') {
             return tag.category === currentFilter.value
           }
@@ -625,10 +626,11 @@
       if (filteredMemes.length === 0) return null
       
       if (useWeight && Object.keys(weights).length > 0) {
-        const totalWeight = filteredMemes.reduce((sum, meme) => sum + (weights[meme] || 1), 0)
-        let random = Math.random() * totalWeight
+        var totalWeight = filteredMemes.reduce(function(sum, meme) { return sum + (weights[meme] || 1) }, 0)
+        var random = Math.random() * totalWeight
         
-        for (const meme of filteredMemes) {
+        for (var i = 0; i < filteredMemes.length; i++) {
+          var meme = filteredMemes[i]
           random -= (weights[meme] || 1)
           if (random <= 0) {
             return meme
@@ -640,18 +642,18 @@
     }
     
     async function refreshAll() {
-      const items = document.querySelectorAll('.meme-item')
-      const total = items.length
-      const hasPureRandom = total > 3 && !currentFilter
+      var items = document.querySelectorAll('.meme-item')
+      var total = items.length
+      var hasPureRandom = total > 3 && !currentFilter
       
-      for (let i = 0; i < total; i++) {
-        const img = items[i].querySelector('img')
-        const weightLabel = items[i].querySelector('.meme-weight')
-        const tagLabel = items[i].querySelector('.meme-tag')
+      for (var i = 0; i < total; i++) {
+        var img = items[i].querySelector('img')
+        var weightLabel = items[i].querySelector('.meme-weight')
+        var tagLabel = items[i].querySelector('.meme-tag')
         img.style.opacity = '0.5'
         
-        const useWeight = !(hasPureRandom && i === 0)
-        const memeName = getRandomMeme(useWeight)
+        var useWeight = !(hasPureRandom && i === 0)
+        var memeName = getRandomMeme(useWeight)
         currentMemes[i] = memeName
         
         if (!memeName) {
@@ -662,49 +664,48 @@
           continue
         }
         
-        img.src = `assets/${memeName}?t=${Date.now()}-${i}`
-        
+        img.src = 'assets/' + memeName + '?t=' + Date.now() + '-' + i
         weightLabel.textContent = weights[memeName] || 1
         
-        const tag = memeTags[memeName]
+        var tag = memeTags[memeName]
         tagLabel.textContent = tag ? (tag.text || '') : ''
         
-        img.onload = () => {
-          img.style.opacity = '1'
+        img.onload = function() {
+          this.style.opacity = '1'
         }
       }
     }
     
     function showToast(message) {
-      const toast = document.getElementById('toast')
+      var toast = document.getElementById('toast')
       toast.textContent = message
       toast.classList.add('show')
-      setTimeout(() => toast.classList.remove('show'), 1500)
+      setTimeout(function() { toast.classList.remove('show') }, 1500)
     }
     
     async function shareMeme(index) {
-      const memeName = currentMemes[index]
+      var memeName = currentMemes[index]
       if (!memeName) return
       
       weights[memeName] = (weights[memeName] || 1) + 1
       saveWeights()
       
-      const weightLabel = document.querySelectorAll('.meme-weight')[index]
+      var weightLabel = document.querySelectorAll('.meme-weight')[index]
       weightLabel.textContent = weights[memeName]
       
-      if (isAndroid) {
+      if (isAndroid && Share && Filesystem) {
         try {
-          const response = await fetch(`assets/${memeName}`)
-          const blob = await response.blob()
+          var response = await fetch('assets/' + memeName)
+          var blob = await response.blob()
           
-          const reader = new FileReader()
-          reader.onload = async () => {
+          var reader = new FileReader()
+          reader.onload = async function() {
             try {
-              const base64Data = reader.result.split(',')[1]
-              const ext = memeName.split('.').pop().toLowerCase()
-              const fileName = `meme_${Date.now()}.${ext}`
+              var base64Data = reader.result.split(',')[1]
+              var ext = memeName.split('.').pop().toLowerCase()
+              var fileName = 'meme_' + Date.now() + '.' + ext
               
-              const result = await Filesystem.writeFile({
+              var result = await Filesystem.writeFile({
                 path: fileName,
                 data: base64Data,
                 directory: 'Cache'
@@ -728,7 +729,7 @@
     }
     
     function openSettings() {
-      document.getElementById('grid-input').value = `${gridConfig.rows}x${gridConfig.cols}`
+      document.getElementById('grid-input').value = gridConfig.rows + 'x' + gridConfig.cols
       document.getElementById('settings-modal').classList.add('show')
     }
     
@@ -737,8 +738,8 @@
     }
     
     async function saveSettings() {
-      const input = document.getElementById('grid-input').value
-      const newConfig = parseGridConfig(input)
+      var input = document.getElementById('grid-input').value
+      var newConfig = parseGridConfig(input)
       
       if (newConfig.rows !== gridConfig.rows || newConfig.cols !== gridConfig.cols) {
         gridConfig = newConfig
@@ -751,18 +752,18 @@
     
     function openTagModal(index) {
       currentTagEditIndex = index
-      const memeName = currentMemes[index]
+      var memeName = currentMemes[index]
       
-      document.querySelectorAll('#tag-modal .category-btn').forEach(btn => {
+      document.querySelectorAll('#tag-modal .category-btn').forEach(function(btn) {
         btn.classList.remove('selected')
       })
       
       if (memeName) {
-        const tag = memeTags[memeName]
+        var tag = memeTags[memeName]
         if (tag) {
           document.getElementById('tag-input').value = tag.text || ''
           if (tag.category) {
-            const btn = document.querySelector(`#tag-modal .category-btn[data-category="${tag.category}"]`)
+            var btn = document.querySelector('#tag-modal .category-btn[data-category="' + tag.category + '"]')
             if (btn) btn.classList.add('selected')
           }
         } else {
@@ -783,33 +784,33 @@
     function saveTag() {
       if (currentTagEditIndex < 0) return
       
-      const memeName = currentMemes[currentTagEditIndex]
+      var memeName = currentMemes[currentTagEditIndex]
       if (!memeName) {
         closeTagModal()
         return
       }
       
-      const text = document.getElementById('tag-input').value.trim()
-      const selectedCategory = document.querySelector('#tag-modal .category-btn.selected')
-      const category = selectedCategory ? selectedCategory.dataset.category : null
+      var text = document.getElementById('tag-input').value.trim()
+      var selectedCategory = document.querySelector('#tag-modal .category-btn.selected')
+      var category = selectedCategory ? selectedCategory.dataset.category : null
       
       if (text || category) {
-        memeTags[memeName] = { text, category }
+        memeTags[memeName] = { text: text, category: category }
       } else {
         delete memeTags[memeName]
       }
       saveTags()
       
-      const tagLabel = document.querySelectorAll('.meme-tag')[currentTagEditIndex]
+      var tagLabel = document.querySelectorAll('.meme-tag')[currentTagEditIndex]
       tagLabel.textContent = text
       
       closeTagModal()
       showToast('标签已保存')
     }
     
-    document.querySelectorAll('#tag-modal .category-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('#tag-modal .category-btn').forEach(b => b.classList.remove('selected'))
+    document.querySelectorAll('#tag-modal .category-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        document.querySelectorAll('#tag-modal .category-btn').forEach(function(b) { b.classList.remove('selected') })
         btn.classList.add('selected')
       })
     })
@@ -819,7 +820,7 @@
       document.getElementById('search-results').innerHTML = '<div class="no-results">输入关键词搜索</div>'
       setSearchType('tag')
       document.getElementById('search-modal').classList.add('show')
-      setTimeout(() => document.getElementById('search-input').focus(), 100)
+      setTimeout(function() { document.getElementById('search-input').focus() }, 100)
     }
     
     function closeSearch() {
@@ -835,20 +836,21 @@
     }
     
     function performSearch() {
-      const query = document.getElementById('search-input').value.trim().toLowerCase()
-      const resultsDiv = document.getElementById('search-results')
+      var query = document.getElementById('search-input').value.trim().toLowerCase()
+      var resultsDiv = document.getElementById('search-results')
       
       if (!query) {
         resultsDiv.innerHTML = '<div class="no-results">输入关键词搜索</div>'
         return
       }
       
-      let results = []
+      var results = []
       
-      for (const meme of memes) {
-        const tag = memeTags[meme] || null
+      for (var i = 0; i < memes.length; i++) {
+        var meme = memes[i]
+        var tag = memeTags[meme] || null
         
-        if (tag && tag.text && tag.text.toLowerCase().includes(query)) {
+        if (tag && tag.text && tag.text.toLowerCase().indexOf(query) >= 0) {
           results.push({
             name: meme,
             tag: tag
@@ -861,19 +863,21 @@
         return
       }
       
-      resultsDiv.innerHTML = results.map(r => `
-        <div class="search-result-item" data-meme="${r.name}">
-          <img src="assets/${r.name}?t=${Date.now()}">
-          <div class="search-result-info">
-            <div class="search-result-name">${r.name}</div>
-            <div class="search-result-tag">${r.tag?.text || '无标签'}</div>
-            <div class="search-result-category">${r.tag?.category ? categoryNames[r.tag.category] : ''}</div>
-          </div>
-        </div>
-      `).join('')
+      var html = ''
+      for (var i = 0; i < results.length; i++) {
+        var r = results[i]
+        html += '<div class="search-result-item" data-meme="' + r.name + '">'
+        html += '<img src="assets/' + r.name + '?t=' + Date.now() + '">'
+        html += '<div class="search-result-info">'
+        html += '<div class="search-result-name">' + r.name + '</div>'
+        html += '<div class="search-result-tag">' + (r.tag && r.tag.text ? r.tag.text : '无标签') + '</div>'
+        html += '<div class="search-result-category">' + (r.tag && r.tag.category ? categoryNames[r.tag.category] : '') + '</div>'
+        html += '</div></div>'
+      }
+      resultsDiv.innerHTML = html
       
-      resultsDiv.querySelectorAll('.search-result-item').forEach(item => {
-        item.addEventListener('click', () => {
+      resultsDiv.querySelectorAll('.search-result-item').forEach(function(item) {
+        item.addEventListener('click', function() {
           showMemeFromSearch(item.dataset.meme)
         })
       })
@@ -882,17 +886,17 @@
     async function showMemeFromSearch(memeName) {
       closeSearch()
       
-      const items = document.querySelectorAll('.meme-item')
-      const img = items[0].querySelector('img')
-      const weightLabel = items[0].querySelector('.meme-weight')
-      const tagLabel = items[0].querySelector('.meme-tag')
+      var items = document.querySelectorAll('.meme-item')
+      var img = items[0].querySelector('img')
+      var weightLabel = items[0].querySelector('.meme-weight')
+      var tagLabel = items[0].querySelector('.meme-tag')
       
       currentMemes[0] = memeName
-      img.src = `assets/${memeName}?t=${Date.now()}`
+      img.src = 'assets/' + memeName + '?t=' + Date.now()
       
       weightLabel.textContent = weights[memeName] || 1
       
-      const tag = memeTags[memeName]
+      var tag = memeTags[memeName]
       tagLabel.textContent = tag ? (tag.text || '') : ''
     }
     
@@ -912,29 +916,32 @@
     }
     
     async function importZip() {
-      const input = document.createElement('input')
+      var input = document.createElement('input')
       input.type = 'file'
       input.accept = '.zip'
-      input.onchange = async (e) => {
-        const file = e.target.files[0]
+      input.onchange = async function(e) {
+        var file = e.target.files[0]
         if (!file) return
         
         try {
-          const arrayBuffer = await file.arrayBuffer()
-          const zip = await JSZip.loadAsync(arrayBuffer)
-          let count = 0
+          var arrayBuffer = await file.arrayBuffer()
+          var zip = await JSZip.loadAsync(arrayBuffer)
+          var count = 0
           
-          const validExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
+          var validExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
+          var entries = Object.entries(zip.files)
           
-          for (const [filename, zipEntry] of Object.entries(zip.files)) {
+          for (var i = 0; i < entries.length; i++) {
+            var filename = entries[i][0]
+            var zipEntry = entries[i][1]
             if (!zipEntry.dir) {
-              const ext = '.' + filename.split('.').pop().toLowerCase()
-              if (validExts.includes(ext)) {
-                const baseName = filename.split('/').pop()
-                const content = await zipEntry.async('base64')
+              var ext = '.' + filename.split('.').pop().toLowerCase()
+              if (validExts.indexOf(ext) >= 0) {
+                var baseName = filename.split('/').pop()
+                var content = await zipEntry.async('base64')
                 
                 await Filesystem.writeFile({
-                  path: `assets/${baseName}`,
+                  path: 'assets/' + baseName,
                   data: content,
                   directory: 'Data',
                   recursive: true
@@ -945,7 +952,7 @@
           }
           
           await loadMemes()
-          showToast(`已导入 ${count} 张表情包`)
+          showToast('已导入 ' + count + ' 张表情包')
           refreshAll()
         } catch (e) {
           showToast('导入失败: ' + e.message)
@@ -965,13 +972,13 @@
     
     document.getElementById('search-btn').addEventListener('click', openSearch)
     document.getElementById('search-close-btn').addEventListener('click', closeSearch)
-    document.getElementById('search-type-tag').addEventListener('click', () => setSearchType('tag'))
-    document.getElementById('search-type-category').addEventListener('click', () => setSearchType('category'))
+    document.getElementById('search-type-tag').addEventListener('click', function() { setSearchType('tag') })
+    document.getElementById('search-type-category').addEventListener('click', function() { setSearchType('category') })
     document.getElementById('search-input').addEventListener('input', performSearch)
     document.getElementById('mode-tag').addEventListener('click', clearFilter)
     
-    document.querySelectorAll('.category-filter-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
+    document.querySelectorAll('.category-filter-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
         selectCategory(btn.dataset.category)
       })
     })
@@ -982,6 +989,9 @@
       await loadMemes()
       renderGrid()
       refreshAll()
+      setTimeout(function() {
+        document.getElementById('debug-panel').style.display = 'none'
+      }, 1000)
     }
     
     init()

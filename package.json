@@ -33,7 +33,10 @@
       "!-qq-vv-awa/**",
       "!web/**",
       "!android/**",
-      "!assets/**"
+      "!assets/**",
+      "!release/**",
+      "!dist/**",
+      "!build_all.py"
     ],
     "win": {
       "target": [

@@ -57,3 +57,7 @@ web/assets/
 # Temporary files
 *.tmp
 *.temp
+temp_check.js
+
+# Old version backup
+MemeFlow-1.0.0/
