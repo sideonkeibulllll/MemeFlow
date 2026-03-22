@@ -54,6 +54,9 @@ web/assets/
 *.webp
 !icon.ico
 
+# But keep Android launcher icons
+!android/app/src/main/res/mipmap-*/ic_launcher*.png
+
 # Temporary files
 *.tmp
 *.temp

@@ -511,7 +511,7 @@
     function parseGridConfig(input) {
       const match = input.trim().match(/^(\d+)\s*[xX×]\s*(\d+)$/)
       if (match) {
-        return { rows: Math.min(Math.max(1, parseInt(match[1])), 4), cols: Math.min(Math.max(1, parseInt(match[2])), 4) }
+        return { rows: Math.min(Math.max(1, parseInt(match[1])), 6), cols: Math.min(Math.max(1, parseInt(match[2])), 4) }
       }
       return { rows: 1, cols: 1 }
     }
@@ -562,6 +562,8 @@
       const total = items.length
       const hasPureRandom = total > 3 && !currentFilter
       
+      currentMemes = []
+      
       for (let i = 0; i < total; i++) {
         const img = items[i].querySelector('img')
         const weightLabel = items[i].querySelector('.meme-weight')
@@ -569,7 +571,7 @@
         img.style.opacity = '0.5'
         
         const useWeight = !(hasPureRandom && i === 0)
-        const memePath = await ipcRenderer.invoke('get-random-meme', useWeight, currentFilter)
+        const memePath = await ipcRenderer.invoke('get-random-meme', useWeight, currentFilter, currentMemes)
         
         if (!memePath) {
           img.src = ''
@@ -639,6 +641,7 @@
       
       if (newConfig.rows !== gridConfig.rows || newConfig.cols !== gridConfig.cols) {
         gridConfig = newConfig
+        ipcRenderer.invoke('set-grid-config', gridConfig)
         renderGrid()
         refreshAll()
       }
@@ -852,6 +855,10 @@
     })
     
     async function init() {
+      const savedConfig = await ipcRenderer.invoke('get-grid-config')
+      if (savedConfig) {
+        gridConfig = savedConfig
+      }
       renderGrid()
       refreshAll()
     }

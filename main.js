@@ -5,11 +5,18 @@ const AdmZip = require('adm-zip')
 
 const WEIGHTS_FILE = path.join(app.getPath('userData'), 'meme-weights.json')
 const TAGS_FILE = path.join(app.getPath('userData'), 'meme-tags.json')
+const CONFIG_FILE = path.join(app.getPath('userData'), 'meme-config.json')
+const INDEX_FILE = path.join(app.getPath('userData'), 'meme-index.json')
 const ASSETS_DIR = path.join(app.getPath('userData'), 'assets')
 const DEV_ASSETS_DIR = path.join(__dirname, 'assets')
 
 let weights = {}
 let memeTags = {}
+let appConfig = { gridConfig: { rows: 1, cols: 1 } }
+let memeIndex = []
+let prefixSumCache = null
+let cachedFiles = null
+const validExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
 
 function loadWeights() {
   try {
@@ -43,6 +50,131 @@ function saveTags() {
   } catch (e) {}
 }
 
+function loadConfig() {
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      appConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'))
+      if (!appConfig.gridConfig) {
+        appConfig.gridConfig = { rows: 1, cols: 1 }
+      }
+    }
+  } catch (e) {
+    appConfig = { gridConfig: { rows: 1, cols: 1 } }
+  }
+}
+
+function saveConfig() {
+  try {
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(appConfig, null, 2))
+  } catch (e) {}
+}
+
+function loadIndex() {
+  try {
+    if (fs.existsSync(INDEX_FILE)) {
+      memeIndex = JSON.parse(fs.readFileSync(INDEX_FILE, 'utf-8'))
+    }
+  } catch (e) {
+    memeIndex = []
+  }
+}
+
+function saveIndex() {
+  try {
+    fs.writeFileSync(INDEX_FILE, JSON.stringify(memeIndex, null, 2))
+  } catch (e) {}
+}
+
+function scanAssetsDir() {
+  const assetsPath = getAssetsPath()
+  try {
+    return fs.readdirSync(assetsPath).filter(file => {
+      const ext = path.extname(file).toLowerCase()
+      return validExts.includes(ext)
+    })
+  } catch (e) {
+    return []
+  }
+}
+
+function updateIndex() {
+  const assetsPath = getAssetsPath()
+  const currentFiles = scanAssetsDir()
+  const indexSet = new Set(memeIndex)
+  
+  let changed = false
+  
+  for (const file of currentFiles) {
+    if (!indexSet.has(file)) {
+      memeIndex.push(file)
+      changed = true
+    }
+  }
+  
+  const currentSet = new Set(currentFiles)
+  const beforeLen = memeIndex.length
+  memeIndex = memeIndex.filter(f => currentSet.has(f))
+  if (memeIndex.length !== beforeLen) {
+    changed = true
+  }
+  
+  if (changed) {
+    saveIndex()
+  }
+  
+  return memeIndex
+}
+
+function buildPrefixSum(files) {
+  const prefixSum = []
+  let sum = 0
+  for (let i = 0; i < files.length; i++) {
+    sum += weights[files[i]] || 1
+    prefixSum[i] = sum
+  }
+  return prefixSum
+}
+
+function binarySearchPrefix(prefixSum, target) {
+  let left = 0
+  let right = prefixSum.length - 1
+  
+  while (left < right) {
+    const mid = Math.floor((left + right) / 2)
+    if (prefixSum[mid] < target) {
+      left = mid + 1
+    } else {
+      right = mid
+    }
+  }
+  
+  return left
+}
+
+function getWeightedRandomFile(files) {
+  if (files.length === 0) return null
+  
+  const needRebuild = !prefixSumCache || 
+                      cachedFiles !== files ||
+                      prefixSumCache.length !== files.length
+  
+  if (needRebuild) {
+    prefixSumCache = buildPrefixSum(files)
+    cachedFiles = files
+  }
+  
+  const totalWeight = prefixSumCache[prefixSumCache.length - 1]
+  const random = Math.random() * totalWeight
+  
+  const index = binarySearchPrefix(prefixSumCache, random)
+  return files[index]
+}
+
+function invalidateWeightCache() {
+  prefixSumCache = null
+  cachedFiles = null
+}
+
 function ensureAssetsDir() {
   if (!fs.existsSync(ASSETS_DIR)) {
     fs.mkdirSync(ASSETS_DIR, { recursive: true })
@@ -66,7 +198,8 @@ function createWindow() {
       contextIsolation: false
     },
     resizable: true,
-    autoHideMenuBar: true
+    autoHideMenuBar: true,
+    icon: path.join(__dirname, 'icon.ico')
   })
 
   win.loadFile('index.html')
@@ -75,6 +208,9 @@ function createWindow() {
 app.whenReady().then(() => {
   loadWeights()
   loadTags()
+  loadConfig()
+  loadIndex()
+  updateIndex()
   ensureAssetsDir()
   createWindow()
 
@@ -92,31 +228,15 @@ app.on('window-all-closed', () => {
 })
 
 ipcMain.handle('get-meme-list', () => {
-  const assetsPath = getAssetsPath()
-  try {
-    const files = fs.readdirSync(assetsPath).filter(file => {
-      const ext = path.extname(file).toLowerCase()
-      return ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext)
-    })
-    return files
-  } catch (e) {
-    return []
-  }
+  return memeIndex
 })
 
-ipcMain.handle('get-random-meme', (event, useWeight = true, filter = null) => {
+ipcMain.handle('get-random-meme', (event, useWeight = true, filter = null, exclude = []) => {
   const assetsPath = getAssetsPath()
-  let files
-  try {
-    files = fs.readdirSync(assetsPath).filter(file => {
-      const ext = path.extname(file).toLowerCase()
-      return ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext)
-    })
-  } catch (e) {
-    return null
-  }
   
-  if (files.length === 0) return null
+  if (memeIndex.length === 0) return null
+  
+  let files = memeIndex
   
   if (filter) {
     files = files.filter(file => {
@@ -133,31 +253,37 @@ ipcMain.handle('get-random-meme', (event, useWeight = true, filter = null) => {
     
     if (files.length === 0) return null
     
+    const excludeSet = new Set(exclude.map(p => path.basename(p)))
+    files = files.filter(f => !excludeSet.has(f))
+    
+    if (files.length === 0) return null
+    
     const randomFile = files[Math.floor(Math.random() * files.length)]
     return path.join(assetsPath, randomFile)
   }
   
+  const excludeSet = new Set(exclude.map(p => path.basename(p)))
+  files = files.filter(f => !excludeSet.has(f))
+  
+  if (files.length === 0) return null
+  
+  let randomFile
   if (useWeight && Object.keys(weights).length > 0) {
-    const totalWeight = files.reduce((sum, file) => sum + (weights[file] || 1), 0)
-    let random = Math.random() * totalWeight
-    
-    for (const file of files) {
-      random -= (weights[file] || 1)
-      if (random <= 0) {
-        return path.join(assetsPath, file)
-      }
-    }
+    randomFile = getWeightedRandomFile(files)
+  } else {
+    randomFile = files[Math.floor(Math.random() * files.length)]
   }
   
-  const randomFile = files[Math.floor(Math.random() * files.length)]
-  return path.join(assetsPath, randomFile)
+  return randomFile ? path.join(assetsPath, randomFile) : null
 })
 
 ipcMain.handle('increase-weight', (event, memePath) => {
   if (!memePath) return 1
   const fileName = path.basename(memePath)
-  weights[fileName] = (weights[fileName] || 1) + 1
+  const currentWeight = weights[fileName] || 1
+  weights[fileName] = Math.min(currentWeight + 1, 10)
   saveWeights()
+  invalidateWeightCache()
   return weights[fileName]
 })
 
@@ -186,19 +312,10 @@ ipcMain.handle('set-tag', (event, memePath, tag) => {
 
 ipcMain.handle('search-memes', (event, searchType, query) => {
   const assetsPath = getAssetsPath()
-  let files
-  try {
-    files = fs.readdirSync(assetsPath).filter(file => {
-      const ext = path.extname(file).toLowerCase()
-      return ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext)
-    })
-  } catch (e) {
-    return []
-  }
   
   let results = []
   
-  for (const file of files) {
+  for (const file of memeIndex) {
     const tag = memeTags[file] || null
     
     let matches = false
@@ -240,8 +357,6 @@ ipcMain.handle('import-zip', (event, zipPath) => {
     const entries = zip.getEntries()
     let count = 0
     
-    const validExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
-    
     entries.forEach(entry => {
       if (!entry.isDirectory) {
         const entryName = entry.entryName
@@ -253,14 +368,34 @@ ipcMain.handle('import-zip', (event, zipPath) => {
           
           if (!fs.existsSync(destPath)) {
             fs.writeFileSync(destPath, entry.getData())
+            if (!memeIndex.includes(fileName)) {
+              memeIndex.push(fileName)
+            }
             count++
           }
         }
       }
     })
     
+    if (count > 0) {
+      saveIndex()
+    }
+    
     return { success: true, count }
   } catch (e) {
     return { success: false, error: e.message }
   }
+})
+
+ipcMain.handle('get-grid-config', () => {
+  return appConfig.gridConfig || { rows: 1, cols: 1 }
+})
+
+ipcMain.handle('set-grid-config', (event, config) => {
+  appConfig.gridConfig = {
+    rows: Math.min(Math.max(1, config.rows), 6),
+    cols: Math.min(Math.max(1, config.cols), 4)
+  }
+  saveConfig()
+  return appConfig.gridConfig
 })
