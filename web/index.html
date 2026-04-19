@@ -897,29 +897,74 @@
       return result
     }
     
-    // 保存当前页面到历史记录
-    function saveCurrentPageToHistory() {
-      // 如果当前不是历史记录的最新页，删除后面的历史
-      if (currentHistoryIndex < pageHistory.length - 1) {
-        pageHistory = pageHistory.slice(0, currentHistoryIndex + 1)
+    // 计算页面哈希值
+    function getPageHash(page) {
+      var hash = 0
+      for (var i = 0; i < page.length; i++) {
+        var str = page[i] || ''
+        for (var j = 0; j < str.length; j++) {
+          var char = str.charCodeAt(j)
+          hash = ((hash << 5) - hash) + char
+          hash = hash & hash
+        }
       }
+      return hash
+    }
 
+    // 检查页面是否为空（全是null）
+    function isPageEmpty(page) {
+      for (var i = 0; i < page.length; i++) {
+        if (page[i] !== null && page[i] !== undefined) {
+          return false
+        }
+      }
+      return true
+    }
+
+    // 保存当前页面到历史记录（只在历史末尾时调用）
+    function saveCurrentPageToHistory() {
       // 保存当前页面的索引（深拷贝数组）
       var pageSnapshot = []
       for (var i = 0; i < currentMemes.length; i++) {
         pageSnapshot.push(currentMemes[i])
       }
+
+      // 如果是空页面，不保存
+      if (isPageEmpty(pageSnapshot)) {
+        return
+      }
+
+      // 计算当前页哈希值
+      var currentHash = getPageHash(pageSnapshot)
+
+      // 检查是否与上一页相同（通过哈希值），如果相同则不保存
+      if (pageHistory.length > 0) {
+        var lastPage = pageHistory[pageHistory.length - 1]
+        var lastHash = getPageHash(lastPage)
+        if (currentHash === lastHash) {
+          // 页面相同，不保存，只确保索引在末尾
+          currentHistoryIndex = pageHistory.length - 1
+          updateRefreshButtonText()
+          return
+        }
+      }
+
+      // 如果当前在历史中间（不是末尾），先删除后面的历史
+      // 这种情况不应该发生，因为 saveCurrentPageToHistory 只在历史末尾调用
+      // 但为了安全，还是加上这个检查
+      if (currentHistoryIndex < pageHistory.length - 1) {
+        pageHistory = pageHistory.slice(0, currentHistoryIndex + 1)
+      }
+
       pageHistory.push(pageSnapshot)
 
       // 如果超过最大历史记录数，删除最旧的
       if (pageHistory.length > maxHistorySize) {
         pageHistory.shift()
-        // 调整索引
-        currentHistoryIndex = pageHistory.length - 1
-      } else {
-        // 更新当前历史索引
-        currentHistoryIndex = pageHistory.length - 1
       }
+
+      // 更新当前历史索引到末尾
+      currentHistoryIndex = pageHistory.length - 1
 
       // 更新刷新按钮显示
       updateRefreshButtonText()
@@ -982,43 +1027,54 @@
       return true
     }
 
-    async function refreshAll() {
-      // 保存当前页面到历史记录（只有在历史末尾时才保存）
-      if (currentHistoryIndex === pageHistory.length - 1 || pageHistory.length === 0) {
-        saveCurrentPageToHistory()
-      } else {
-        // 如果在历史中间，移动到下一页历史而不是随机新页面
-        currentHistoryIndex++
-        var nextPage = pageHistory[currentHistoryIndex]
+    // 前进到下一页历史
+    function goForwardPage() {
+      if (currentHistoryIndex >= pageHistory.length - 1) {
+        // 已经在最后一页，生成新页面
+        return false
+      }
 
-        // 恢复页面
-        var items = document.querySelectorAll('.meme-item')
-        for (var i = 0; i < items.length && i < nextPage.length; i++) {
-          var img = items[i].querySelector('img')
-          var weightLabel = items[i].querySelector('.meme-weight')
-          var tagLabel = items[i].querySelector('.meme-tag')
+      currentHistoryIndex++
+      var nextPage = pageHistory[currentHistoryIndex]
 
-          var memeName = nextPage[i]
-          currentMemes[i] = memeName
+      // 恢复页面
+      var items = document.querySelectorAll('.meme-item')
+      for (var i = 0; i < items.length && i < nextPage.length; i++) {
+        var img = items[i].querySelector('img')
+        var weightLabel = items[i].querySelector('.meme-weight')
+        var tagLabel = items[i].querySelector('.meme-tag')
 
-          if (!memeName) {
-            img.src = ''
-            weightLabel.textContent = '-'
-            tagLabel.textContent = ''
-            continue
-          }
+        var memeName = nextPage[i]
+        currentMemes[i] = memeName
 
-          img.src = 'assets/' + memeName
-          weightLabel.textContent = weights[memeName] || 1
-
-          var tag = memeTags[memeName]
-          tagLabel.textContent = tag ? (tag.text || '') : ''
+        if (!memeName) {
+          img.src = ''
+          weightLabel.textContent = '-'
+          tagLabel.textContent = ''
+          continue
         }
 
-        updateRefreshButtonText()
-        showToast('继续浏览 (' + (currentHistoryIndex + 1) + '/' + pageHistory.length + ')')
+        img.src = 'assets/' + memeName
+        weightLabel.textContent = weights[memeName] || 1
+
+        var tag = memeTags[memeName]
+        tagLabel.textContent = tag ? (tag.text || '') : ''
+      }
+
+      updateRefreshButtonText()
+      showToast('继续浏览 (' + (currentHistoryIndex + 1) + '/' + pageHistory.length + ')')
+      return true
+    }
+
+    async function refreshAll() {
+      // 如果在历史中间，前进到下一页历史
+      if (currentHistoryIndex < pageHistory.length - 1) {
+        goForwardPage()
         return
       }
+
+      // 在历史末尾，生成新页面并保存
+      saveCurrentPageToHistory()
 
       var items = document.querySelectorAll('.meme-item')
       var total = items.length
