@@ -131,8 +131,27 @@
       display: none;
       box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     }
-    
+
     .mode-tag.show {
+      display: block;
+    }
+
+    .history-tag {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      background: #ff6b6b;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      z-index: 49;
+      display: none;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+
+    .history-tag.show {
       display: block;
     }
     
@@ -491,7 +510,8 @@
   </div>
   
   <button class="mode-tag" id="mode-tag">tags</button>
-  
+  <button class="history-tag" id="history-tag">1/10</button>
+
   <div class="meme-grid" id="meme-grid"></div>
   
   <div class="bottom-bar">
@@ -884,32 +904,40 @@
         pageHistory = pageHistory.slice(0, currentHistoryIndex + 1)
       }
 
-      // 保存当前页面的索引（复制数组）
-      pageHistory.push(currentMemes.slice())
+      // 保存当前页面的索引（深拷贝数组）
+      var pageSnapshot = []
+      for (var i = 0; i < currentMemes.length; i++) {
+        pageSnapshot.push(currentMemes[i])
+      }
+      pageHistory.push(pageSnapshot)
 
       // 如果超过最大历史记录数，删除最旧的
       if (pageHistory.length > maxHistorySize) {
         pageHistory.shift()
+        // 调整索引
+        currentHistoryIndex = pageHistory.length - 1
+      } else {
+        // 更新当前历史索引
+        currentHistoryIndex = pageHistory.length - 1
       }
-
-      // 更新当前历史索引
-      currentHistoryIndex = pageHistory.length - 1
 
       // 更新刷新按钮显示
       updateRefreshButtonText()
     }
 
-    // 更新刷新按钮文本
+    // 更新刷新按钮文本和历史位置显示
     function updateRefreshButtonText() {
       var refreshBtn = document.getElementById('refresh-btn')
+      refreshBtn.textContent = '刷新'
+
+      // 更新左上角历史位置气泡
+      var historyTag = document.getElementById('history-tag')
       if (pageHistory.length > 1 && currentHistoryIndex < pageHistory.length - 1) {
-        // 在历史记录中间，显示可以前进
-        refreshBtn.textContent = '刷新 (' + (currentHistoryIndex + 1) + '/' + pageHistory.length + ')'
-      } else if (currentHistoryIndex > 0) {
-        // 在历史记录末尾，但可以返回
-        refreshBtn.textContent = '刷新 (' + (currentHistoryIndex + 1) + '/' + pageHistory.length + ')'
+        // 在历史记录中间（回忆模式）
+        historyTag.textContent = (currentHistoryIndex + 1) + '/' + pageHistory.length
+        historyTag.classList.add('show')
       } else {
-        refreshBtn.textContent = '刷新'
+        historyTag.classList.remove('show')
       }
     }
 
@@ -920,6 +948,7 @@
         return false
       }
 
+      // 只返回一页，不循环
       currentHistoryIndex--
       var prevPage = pageHistory[currentHistoryIndex]
 
@@ -940,7 +969,8 @@
           continue
         }
 
-        img.src = 'assets/' + memeName + '?t=' + Date.now() + '-' + i
+        // 返回历史页面时不加时间戳，避免重新加载图片
+        img.src = 'assets/' + memeName
         weightLabel.textContent = weights[memeName] || 1
 
         var tag = memeTags[memeName]
@@ -952,10 +982,42 @@
       return true
     }
 
-    async function refreshAll(saveHistory) {
-      // 默认保存历史记录，除非是恢复历史页面时调用
-      if (saveHistory !== false) {
+    async function refreshAll() {
+      // 保存当前页面到历史记录（只有在历史末尾时才保存）
+      if (currentHistoryIndex === pageHistory.length - 1 || pageHistory.length === 0) {
         saveCurrentPageToHistory()
+      } else {
+        // 如果在历史中间，移动到下一页历史而不是随机新页面
+        currentHistoryIndex++
+        var nextPage = pageHistory[currentHistoryIndex]
+
+        // 恢复页面
+        var items = document.querySelectorAll('.meme-item')
+        for (var i = 0; i < items.length && i < nextPage.length; i++) {
+          var img = items[i].querySelector('img')
+          var weightLabel = items[i].querySelector('.meme-weight')
+          var tagLabel = items[i].querySelector('.meme-tag')
+
+          var memeName = nextPage[i]
+          currentMemes[i] = memeName
+
+          if (!memeName) {
+            img.src = ''
+            weightLabel.textContent = '-'
+            tagLabel.textContent = ''
+            continue
+          }
+
+          img.src = 'assets/' + memeName
+          weightLabel.textContent = weights[memeName] || 1
+
+          var tag = memeTags[memeName]
+          tagLabel.textContent = tag ? (tag.text || '') : ''
+        }
+
+        updateRefreshButtonText()
+        showToast('继续浏览 (' + (currentHistoryIndex + 1) + '/' + pageHistory.length + ')')
+        return
       }
 
       var items = document.querySelectorAll('.meme-item')
@@ -1505,23 +1567,39 @@
     // 刷新按钮点击事件
     var refreshBtn = document.getElementById('refresh-btn')
     var refreshLongPressTimer = null
-    var refreshLongPressDuration = 600
+    var refreshLongPressDuration = 500
     var isRefreshLongPress = false
+    var hasGoBack = false
+    var lastGoBackTime = 0
 
     refreshBtn.addEventListener('click', function() {
-      if (isRefreshLongPress) {
+      if (isRefreshLongPress || hasGoBack) {
         isRefreshLongPress = false
+        hasGoBack = false
         return
       }
       refreshAll()
     })
 
-    // 刷新按钮长按事件 - 返回上一页
+    // 刷新按钮长按事件 - 返回上一页（移动端）
     refreshBtn.addEventListener('touchstart', function(e) {
+      // 防止短时间内重复触发
+      var now = Date.now()
+      if (now - lastGoBackTime < 500) {
+        return
+      }
+
       isRefreshLongPress = false
+      hasGoBack = false
       refreshLongPressTimer = setTimeout(function() {
         isRefreshLongPress = true
+        hasGoBack = true
+        lastGoBackTime = Date.now()
         goBackPage()
+        // 延迟重置状态，防止连退
+        setTimeout(function() {
+          hasGoBack = false
+        }, 500)
       }, refreshLongPressDuration)
     }, { passive: true })
 
@@ -1530,6 +1608,10 @@
         clearTimeout(refreshLongPressTimer)
         refreshLongPressTimer = null
       }
+      // 延迟重置长按状态
+      setTimeout(function() {
+        isRefreshLongPress = false
+      }, 50)
     })
 
     refreshBtn.addEventListener('touchmove', function(e) {
@@ -1539,26 +1621,19 @@
       }
     }, { passive: true })
 
-    // PC端鼠标长按支持
+    // 阻止系统默认的上下文菜单（防止触发两次）
+    refreshBtn.addEventListener('contextmenu', function(e) {
+      e.preventDefault()
+      e.stopPropagation()
+      return false
+    })
+
+    // PC端鼠标右键返回上一页
     refreshBtn.addEventListener('mousedown', function(e) {
-      isRefreshLongPress = false
-      refreshLongPressTimer = setTimeout(function() {
-        isRefreshLongPress = true
+      if (e.button === 2) { // 右键
+        e.preventDefault()
+        e.stopPropagation()
         goBackPage()
-      }, refreshLongPressDuration)
-    })
-
-    refreshBtn.addEventListener('mouseup', function(e) {
-      if (refreshLongPressTimer) {
-        clearTimeout(refreshLongPressTimer)
-        refreshLongPressTimer = null
-      }
-    })
-
-    refreshBtn.addEventListener('mouseleave', function(e) {
-      if (refreshLongPressTimer) {
-        clearTimeout(refreshLongPressTimer)
-        refreshLongPressTimer = null
       }
     })
     document.getElementById('settings-btn').addEventListener('click', openSettings)
