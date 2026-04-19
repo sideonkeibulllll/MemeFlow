@@ -90,9 +90,35 @@ def build_apk(version):
     
     gradlew = ANDROID_DIR / "gradlew.bat"
     
+    # 生成签名密钥（如果不存在）
+    key_file = ANDROID_DIR / "app" / "release-key.jks"
+    if not key_file.exists():
+        print("[INFO] Generating signing key...")
+        keytool = Path(env["JAVA_HOME"]) / "bin" / "keytool.exe"
+        result = subprocess.run(
+            [
+                str(keytool), "-genkey", "-v",
+                "-keystore", str(key_file),
+                "-alias", "memerandom",
+                "-keyalg", "RSA",
+                "-keysize", "2048",
+                "-validity", "10000",
+                "-storepass", "memerandom123",
+                "-keypass", "memerandom123",
+                "-dname", "CN=MemeRandom, OU=Meme, O=Random, L=Unknown, ST=Unknown, C=CN"
+            ],
+            cwd=ANDROID_DIR,
+            env=env,
+            shell=True,
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            print(f"[WARN] Key generation output: {result.stderr}")
+    
     print("[INFO] Building APK...")
     result = subprocess.run(
-        [str(gradlew), "clean", "assembleDebug"],
+        [str(gradlew), "clean", "assembleRelease"],
         cwd=ANDROID_DIR,
         env=env,
         shell=True,
@@ -104,17 +130,14 @@ def build_apk(version):
         print(f"[ERROR] APK build failed: {result.stderr}")
         return False
     
-    apk_pattern = str(ANDROID_DIR / "app" / "build" / "outputs" / "apk" / "**" / "*.apk")
-    apks = glob.glob(apk_pattern, recursive=True)
+    apk_path = ANDROID_DIR / "app" / "build" / "outputs" / "apk" / "release" / "app-release.apk"
     
-    for apk in apks:
-        if "debug" in apk.lower() or "release" in apk.lower():
-            apk_path = Path(apk)
-            dest = RELEASE_DIR / f"MemeFlow-{version}-Full.apk"
-            shutil.copy2(apk_path, dest)
-            size_mb = dest.stat().st_size / (1024 * 1024)
-            print(f"[OK] APK: {dest.name} ({size_mb:.2f} MB)")
-            return True
+    if apk_path.exists():
+        dest = RELEASE_DIR / f"MemeFlow-{version}-Full.apk"
+        shutil.copy2(apk_path, dest)
+        size_mb = dest.stat().st_size / (1024 * 1024)
+        print(f"[OK] APK: {dest.name} ({size_mb:.2f} MB)")
+        return True
     
     print("[ERROR] No APK found")
     return False

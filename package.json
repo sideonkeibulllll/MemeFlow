@@ -1,6 +1,6 @@
 {
   "name": "memeflow",
-  "version": "1.0.0",
+  "version": "1.3.0",
   "description": "Your personal meme launcher. One click, instant reaction.",
   "main": "main.js",
   "scripts": {
@@ -17,27 +17,30 @@
     "@capacitor/android": "^8.2.0",
     "@capacitor/cli": "^8.2.0",
     "@capacitor/core": "^8.2.0",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/share": "^8.0.1",
     "electron": "^40.8.0",
     "electron-builder": "^26.8.1"
   },
   "dependencies": {
-    "@capacitor/filesystem": "^8.1.2",
-    "@capacitor/share": "^8.0.1",
     "adm-zip": "^0.5.16"
   },
   "build": {
     "appId": "com.memeflow.app",
     "productName": "MemeFlow",
     "files": [
-      "**/*",
-      "!-qq-vv-awa/**",
-      "!web/**",
-      "!android/**",
-      "!assets/**",
-      "!release/**",
-      "!dist/**",
-      "!build_all.py"
+      "main.js",
+      "index.html",
+      "icon.ico",
+      "icon.png",
+      "build-web.js",
+      "capacitor.config.json",
+      "package.json",
+      "node_modules/adm-zip/**/*"
     ],
+    "directories": {
+      "output": "dist"
+    },
     "win": {
       "target": [
         {
@@ -49,12 +52,17 @@
           "arch": ["x64"]
         }
       ],
-      "icon": "icon.ico",
-      "signAndEditExecutable": false
+      "icon": "icon.ico"
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "icon.ico",
+      "uninstallerIcon": "icon.ico"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-Portable.exe"
+    },
+    "asar": true
   }
 }

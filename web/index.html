@@ -248,6 +248,101 @@
       color: white;
     }
     
+    .grid-setting-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    
+    .expand-btn {
+      background: none;
+      border: none;
+      color: #666;
+      font-size: 0.85rem;
+      cursor: pointer;
+      padding: 4px 8px;
+    }
+    
+    .expand-btn:active {
+      color: #333;
+    }
+    
+    .grid-preview {
+      background: #f5f5f5;
+      padding: 12px;
+      border-radius: 8px;
+      text-align: center;
+      font-size: 1.1rem;
+      color: #333;
+      margin-bottom: 12px;
+    }
+    
+    .grid-custom-section {
+      animation: slideDown 0.2s ease;
+    }
+    
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .grid-input-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    
+    .grid-input-group {
+      flex: 1;
+    }
+    
+    .grid-input-group label {
+      font-size: 0.8rem;
+      color: #999;
+      margin-bottom: 4px;
+    }
+    
+    .grid-input-group input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 1rem;
+      text-align: center;
+    }
+    
+    .grid-separator {
+      font-size: 1.2rem;
+      color: #666;
+      padding-bottom: 10px;
+    }
+    
+    .grid-quick-select {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    
+    .grid-quick-btn {
+      flex: 1;
+      min-width: 60px;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      background: white;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: all 0.2s;
+    }
+    
+    .grid-quick-btn.selected {
+      background: #333;
+      color: white;
+      border-color: #333;
+    }
+    
     .search-type-toggle {
       display: flex;
       gap: 8px;
@@ -409,12 +504,35 @@
     <div class="modal-content">
       <h2>设置</h2>
       <div class="modal-section">
-        <label>排列方式 (行×列)</label>
-        <input type="text" id="grid-input" placeholder="如: 1x1, 2x2, 1x3" value="1x1">
+        <div class="grid-setting-header">
+          <label>排列方式</label>
+          <button class="expand-btn" id="expand-grid-btn">展开设置 ▼</button>
+        </div>
+        <div class="grid-preview" id="grid-preview">1 × 1</div>
+        <div class="grid-custom-section" id="grid-custom-section" style="display:none">
+          <div class="grid-input-row">
+            <div class="grid-input-group">
+              <label>行数 (1-6)</label>
+              <input type="number" id="grid-rows-input" min="1" max="6" value="1">
+            </div>
+            <span class="grid-separator">×</span>
+            <div class="grid-input-group">
+              <label>列数 (1-4)</label>
+              <input type="number" id="grid-cols-input" min="1" max="4" value="1">
+            </div>
+          </div>
+        </div>
       </div>
       <div class="modal-section">
         <label>导入表情包 (zip)</label>
         <button class="import-btn" id="import-btn">点击选择 zip 文件</button>
+        <input type="file" id="zip-file-input" accept=".zip,application/zip" style="display:none">
+      </div>
+      <div class="modal-section">
+        <label>配置管理</label>
+        <button class="import-btn" id="export-config-btn" style="margin-bottom: 8px;">导出配置</button>
+        <button class="import-btn" id="import-config-btn">导入配置</button>
+        <input type="file" id="config-file-input" accept=".json" style="display:none">
       </div>
       <div class="modal-buttons">
         <button class="btn-cancel" id="cancel-btn">取消</button>
@@ -473,6 +591,13 @@
             <button class="category-filter-btn" data-category="social">阴阳怪气/社交</button>
           </div>
         </div>
+        <div class="modal-section">
+          <label>排序</label>
+          <div class="category-filter-list">
+            <button class="category-filter-btn sort-btn" data-sort="most">最多使用</button>
+            <button class="category-filter-btn sort-btn" data-sort="recent">最近使用</button>
+          </div>
+        </div>
       </div>
       <div class="modal-buttons">
         <button class="btn-cancel" id="search-close-btn">关闭</button>
@@ -489,11 +614,19 @@
     var gridConfig = { rows: 1, cols: 1 }
     var weights = {}
     var memeTags = {}
+    var memeUsage = {}
     var currentTagEditIndex = -1
     var searchType = 'tag'
     var currentFilter = null
     var longPressTimer = null
-    
+    var longPressDuration = 500
+    var isLongPress = false
+
+    // 历史页面功能：保存最近10页的索引
+    var pageHistory = []
+    var currentHistoryIndex = -1
+    var maxHistorySize = 10
+
     var isAndroid = typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()
     var Share = isAndroid ? Capacitor.Plugins.Share : null
     var Filesystem = isAndroid ? Capacitor.Plugins.Filesystem : null
@@ -537,6 +670,49 @@
       try {
         localStorage.setItem('meme-tags', JSON.stringify(memeTags))
       } catch (e) {}
+    }
+    
+    function loadGridConfig() {
+      try {
+        var saved = localStorage.getItem('meme-grid-config')
+        if (saved) {
+          gridConfig = JSON.parse(saved)
+        }
+      } catch (e) {
+        gridConfig = { rows: 1, cols: 1 }
+      }
+    }
+    
+    function saveGridConfig() {
+      try {
+        localStorage.setItem('meme-grid-config', JSON.stringify(gridConfig))
+      } catch (e) {}
+    }
+    
+    function loadMemeUsage() {
+      try {
+        var saved = localStorage.getItem('meme-usage')
+        if (saved) {
+          memeUsage = JSON.parse(saved)
+        }
+      } catch (e) {
+        memeUsage = {}
+      }
+    }
+    
+    function saveMemeUsage() {
+      try {
+        localStorage.setItem('meme-usage', JSON.stringify(memeUsage))
+      } catch (e) {}
+    }
+    
+    function recordMemeUsage(memeName) {
+      if (!memeUsage[memeName]) {
+        memeUsage[memeName] = { count: 0, lastUsed: 0 }
+      }
+      memeUsage[memeName].count++
+      memeUsage[memeName].lastUsed = Date.now()
+      saveMemeUsage()
     }
     
     async function loadMemes() {
@@ -601,8 +777,40 @@
         item.appendChild(tagLabel)
         
         item.addEventListener('click', function(idx) {
-          return function() { shareMeme(idx) }
+          return function() {
+            if (isLongPress) {
+              isLongPress = false
+              return
+            }
+            shareMeme(idx)
+          }
         }(i))
+        
+        if (isAndroid) {
+          (function(idx) {
+            item.addEventListener('touchstart', function(e) {
+              isLongPress = false
+              longPressTimer = setTimeout(function() {
+                isLongPress = true
+                openTagModal(idx)
+              }, longPressDuration)
+            }, { passive: true })
+            
+            item.addEventListener('touchend', function(e) {
+              if (longPressTimer) {
+                clearTimeout(longPressTimer)
+                longPressTimer = null
+              }
+            })
+            
+            item.addEventListener('touchmove', function(e) {
+              if (longPressTimer) {
+                clearTimeout(longPressTimer)
+                longPressTimer = null
+              }
+            }, { passive: true })
+          })(i)
+        }
         
         grid.appendChild(item)
         currentMemes.push(null)
@@ -613,14 +821,15 @@
       var filteredMemes = memes
       
       if (currentFilter) {
-        filteredMemes = memes.filter(function(meme) {
-          var tag = memeTags[meme]
-          if (!tag) return false
-          if (currentFilter.type === 'category') {
+        if (currentFilter.type === 'category') {
+          filteredMemes = memes.filter(function(meme) {
+            var tag = memeTags[meme]
+            if (!tag) return false
             return tag.category === currentFilter.value
-          }
-          return false
-        })
+          })
+        } else if (currentFilter.type === 'sort') {
+          return null
+        }
       }
       
       if (filteredMemes.length === 0) return null
@@ -641,21 +850,138 @@
       return filteredMemes[Math.floor(Math.random() * filteredMemes.length)]
     }
     
-    async function refreshAll() {
+    function getSortedMemes(sortType, count) {
+      var sortedMemes = []
+      
+      for (var i = 0; i < memes.length; i++) {
+        var meme = memes[i]
+        var usage = memeUsage[meme] || { count: 0, lastUsed: 0 }
+        sortedMemes.push({
+          name: meme,
+          count: usage.count,
+          lastUsed: usage.lastUsed
+        })
+      }
+      
+      if (sortType === 'most') {
+        sortedMemes.sort(function(a, b) { return b.count - a.count })
+      } else if (sortType === 'recent') {
+        sortedMemes.sort(function(a, b) { return b.lastUsed - a.lastUsed })
+      }
+      
+      var result = []
+      for (var i = 0; i < Math.min(count, sortedMemes.length); i++) {
+        result.push(sortedMemes[i].name)
+      }
+      
+      return result
+    }
+    
+    // 保存当前页面到历史记录
+    function saveCurrentPageToHistory() {
+      // 如果当前不是历史记录的最新页，删除后面的历史
+      if (currentHistoryIndex < pageHistory.length - 1) {
+        pageHistory = pageHistory.slice(0, currentHistoryIndex + 1)
+      }
+
+      // 保存当前页面的索引（复制数组）
+      pageHistory.push(currentMemes.slice())
+
+      // 如果超过最大历史记录数，删除最旧的
+      if (pageHistory.length > maxHistorySize) {
+        pageHistory.shift()
+      }
+
+      // 更新当前历史索引
+      currentHistoryIndex = pageHistory.length - 1
+
+      // 更新刷新按钮显示
+      updateRefreshButtonText()
+    }
+
+    // 更新刷新按钮文本
+    function updateRefreshButtonText() {
+      var refreshBtn = document.getElementById('refresh-btn')
+      if (pageHistory.length > 1 && currentHistoryIndex < pageHistory.length - 1) {
+        // 在历史记录中间，显示可以前进
+        refreshBtn.textContent = '刷新 (' + (currentHistoryIndex + 1) + '/' + pageHistory.length + ')'
+      } else if (currentHistoryIndex > 0) {
+        // 在历史记录末尾，但可以返回
+        refreshBtn.textContent = '刷新 (' + (currentHistoryIndex + 1) + '/' + pageHistory.length + ')'
+      } else {
+        refreshBtn.textContent = '刷新'
+      }
+    }
+
+    // 返回上一页
+    function goBackPage() {
+      if (currentHistoryIndex <= 0) {
+        showToast('已经是第一页了')
+        return false
+      }
+
+      currentHistoryIndex--
+      var prevPage = pageHistory[currentHistoryIndex]
+
+      // 恢复页面
+      var items = document.querySelectorAll('.meme-item')
+      for (var i = 0; i < items.length && i < prevPage.length; i++) {
+        var img = items[i].querySelector('img')
+        var weightLabel = items[i].querySelector('.meme-weight')
+        var tagLabel = items[i].querySelector('.meme-tag')
+
+        var memeName = prevPage[i]
+        currentMemes[i] = memeName
+
+        if (!memeName) {
+          img.src = ''
+          weightLabel.textContent = '-'
+          tagLabel.textContent = ''
+          continue
+        }
+
+        img.src = 'assets/' + memeName + '?t=' + Date.now() + '-' + i
+        weightLabel.textContent = weights[memeName] || 1
+
+        var tag = memeTags[memeName]
+        tagLabel.textContent = tag ? (tag.text || '') : ''
+      }
+
+      updateRefreshButtonText()
+      showToast('已返回上一页 (' + (currentHistoryIndex + 1) + '/' + pageHistory.length + ')')
+      return true
+    }
+
+    async function refreshAll(saveHistory) {
+      // 默认保存历史记录，除非是恢复历史页面时调用
+      if (saveHistory !== false) {
+        saveCurrentPageToHistory()
+      }
+
       var items = document.querySelectorAll('.meme-item')
       var total = items.length
       var hasPureRandom = total > 3 && !currentFilter
-      
+
+      var sortedMemes = null
+      if (currentFilter && currentFilter.type === 'sort') {
+        sortedMemes = getSortedMemes(currentFilter.value, total)
+      }
+
       for (var i = 0; i < total; i++) {
         var img = items[i].querySelector('img')
         var weightLabel = items[i].querySelector('.meme-weight')
         var tagLabel = items[i].querySelector('.meme-tag')
         img.style.opacity = '0.5'
-        
-        var useWeight = !(hasPureRandom && i === 0)
-        var memeName = getRandomMeme(useWeight)
+
+        var memeName = null
+        if (sortedMemes) {
+          memeName = sortedMemes[i] || null
+        } else {
+          var useWeight = !(hasPureRandom && i === 0)
+          memeName = getRandomMeme(useWeight)
+        }
         currentMemes[i] = memeName
-        
+
         if (!memeName) {
           img.src = ''
           img.style.opacity = '1'
@@ -663,17 +989,19 @@
           tagLabel.textContent = ''
           continue
         }
-        
+
         img.src = 'assets/' + memeName + '?t=' + Date.now() + '-' + i
         weightLabel.textContent = weights[memeName] || 1
-        
+
         var tag = memeTags[memeName]
         tagLabel.textContent = tag ? (tag.text || '') : ''
-        
+
         img.onload = function() {
           this.style.opacity = '1'
         }
       }
+
+      updateRefreshButtonText()
     }
     
     function showToast(message) {
@@ -686,12 +1014,6 @@
     async function shareMeme(index) {
       var memeName = currentMemes[index]
       if (!memeName) return
-      
-      weights[memeName] = (weights[memeName] || 1) + 1
-      saveWeights()
-      
-      var weightLabel = document.querySelectorAll('.meme-weight')[index]
-      weightLabel.textContent = weights[memeName]
       
       if (isAndroid && Share && Filesystem) {
         try {
@@ -715,6 +1037,13 @@
                 title: '表情包',
                 url: result.uri
               })
+                  
+                  weights[memeName] = (weights[memeName] || 1) + 1
+                  saveWeights()
+                  recordMemeUsage(memeName)
+                  
+                  var weightLabel = document.querySelectorAll('.meme-weight')[index]
+                  weightLabel.textContent = weights[memeName]
             } catch (e) {
               if (e.message !== 'User canceled share') {
                 showToast('分享失败: ' + (e.message || '未知错误'))
@@ -725,11 +1054,22 @@
         } catch (e) {
           showToast('读取文件失败')
         }
+      } else {
+        weights[memeName] = (weights[memeName] || 1) + 1
+        saveWeights()
+        recordMemeUsage(memeName)
+        
+        var weightLabel = document.querySelectorAll('.meme-weight')[index]
+        weightLabel.textContent = weights[memeName]
       }
     }
     
     function openSettings() {
-      document.getElementById('grid-input').value = gridConfig.rows + 'x' + gridConfig.cols
+      document.getElementById('grid-preview').textContent = gridConfig.rows + ' × ' + gridConfig.cols
+      document.getElementById('grid-rows-input').value = gridConfig.rows
+      document.getElementById('grid-cols-input').value = gridConfig.cols
+      document.getElementById('grid-custom-section').style.display = 'none'
+      document.getElementById('expand-grid-btn').textContent = '展开设置 ▼'
       document.getElementById('settings-modal').classList.add('show')
     }
     
@@ -737,15 +1077,40 @@
       document.getElementById('settings-modal').classList.remove('show')
     }
     
-    async function saveSettings() {
-      var input = document.getElementById('grid-input').value
-      var newConfig = parseGridConfig(input)
-      
-      if (newConfig.rows !== gridConfig.rows || newConfig.cols !== gridConfig.cols) {
-        gridConfig = newConfig
-        renderGrid()
-        refreshAll()
+    function toggleGridSection() {
+      var section = document.getElementById('grid-custom-section')
+      var btn = document.getElementById('expand-grid-btn')
+      if (section.style.display === 'none') {
+        section.style.display = 'block'
+        btn.textContent = '收起设置 ▲'
+      } else {
+        section.style.display = 'none'
+        btn.textContent = '展开设置 ▼'
       }
+    }
+    
+    function setGridFromInputs() {
+      var rows = parseInt(document.getElementById('grid-rows-input').value) || 1
+      var cols = parseInt(document.getElementById('grid-cols-input').value) || 1
+      rows = Math.min(Math.max(1, rows), 6)
+      cols = Math.min(Math.max(1, cols), 4)
+      document.getElementById('grid-rows-input').value = rows
+      document.getElementById('grid-cols-input').value = cols
+      document.getElementById('grid-preview').textContent = rows + ' × ' + cols
+    }
+    
+    async function saveSettings() {
+      var rows = parseInt(document.getElementById('grid-rows-input').value) || 1
+      var cols = parseInt(document.getElementById('grid-cols-input').value) || 1
+      var newConfig = { 
+        rows: Math.min(Math.max(1, rows), 6), 
+        cols: Math.min(Math.max(1, cols), 4) 
+      }
+      
+      gridConfig = newConfig
+      saveGridConfig()
+      renderGrid()
+      refreshAll()
       
       closeSettings()
     }
@@ -908,6 +1273,14 @@
       refreshAll()
     }
     
+    function selectSort(sortType) {
+      currentFilter = { type: 'sort', value: sortType }
+      document.getElementById('mode-tag').textContent = sortType === 'most' ? '最多使用' : '最近使用'
+      document.getElementById('mode-tag').classList.add('show')
+      closeSearch()
+      refreshAll()
+    }
+    
     function clearFilter() {
       currentFilter = null
       document.getElementById('mode-tag').textContent = 'tags'
@@ -916,21 +1289,29 @@
     }
     
     async function importZip() {
-      var input = document.createElement('input')
-      input.type = 'file'
-      input.accept = '.zip'
+      // 使用现有的 input 元素
+      var input = document.getElementById('zip-file-input')
+
       input.onchange = async function(e) {
         var file = e.target.files[0]
-        if (!file) return
-        
+        if (!file) {
+          showToast('未选择文件')
+          return
+        }
+
+        showToast('正在读取 ZIP 文件...')
+
         try {
+          // 读取文件内容
           var arrayBuffer = await file.arrayBuffer()
           var zip = await JSZip.loadAsync(arrayBuffer)
           var count = 0
-          
+
           var validExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
           var entries = Object.entries(zip.files)
-          
+
+          showToast('正在解压 ' + entries.length + ' 个文件...')
+
           for (var i = 0; i < entries.length; i++) {
             var filename = entries[i][0]
             var zipEntry = entries[i][1]
@@ -939,33 +1320,257 @@
               if (validExts.indexOf(ext) >= 0) {
                 var baseName = filename.split('/').pop()
                 var content = await zipEntry.async('base64')
-                
-                await Filesystem.writeFile({
-                  path: 'assets/' + baseName,
-                  data: content,
-                  directory: 'Data',
-                  recursive: true
-                })
-                count++
+
+                if (isAndroid && Filesystem) {
+                  // Android: 写入到应用私有目录
+                  try {
+                    await Filesystem.writeFile({
+                      path: 'assets/' + baseName,
+                      data: content,
+                      directory: 'Data',
+                      recursive: true
+                    })
+                    count++
+                  } catch (writeErr) {
+                    console.error('写入文件失败:', baseName, writeErr)
+                  }
+                } else {
+                  // 浏览器环境暂不支持保存文件
+                  console.log('浏览器环境跳过保存:', baseName)
+                }
               }
             }
           }
-          
-          await loadMemes()
-          showToast('已导入 ' + count + ' 张表情包')
-          refreshAll()
+
+          if (count > 0) {
+            await loadMemes()
+            showToast('成功导入 ' + count + ' 张表情包')
+            refreshAll()
+          } else {
+            showToast('ZIP 中没有找到有效的图片文件')
+          }
         } catch (e) {
-          showToast('导入失败: ' + e.message)
+          console.error('导入 ZIP 失败:', e)
+          showToast('导入失败: ' + (e.message || '请检查 ZIP 文件格式'))
         }
+
+        // 清空 input 以便下次选择同一文件
+        input.value = ''
       }
+
       input.click()
     }
     
-    document.getElementById('refresh-btn').addEventListener('click', refreshAll)
+    async function exportConfig() {
+      try {
+        var configData = {
+          version: '1.0',
+          exportTime: new Date().toISOString(),
+          gridConfig: gridConfig,
+          weights: weights,
+          tags: memeTags,
+          usage: memeUsage
+        }
+
+        var jsonStr = JSON.stringify(configData, null, 2)
+        var fileName = 'memeflow-config-' + new Date().getTime() + '.json'
+
+        if (isAndroid && Share && Filesystem) {
+          // Android: 先写入缓存目录，然后通过系统分享
+          var result = await Filesystem.writeFile({
+            path: fileName,
+            data: btoa(unescape(encodeURIComponent(jsonStr))),
+            directory: 'Cache'
+          })
+
+          await Share.share({
+            title: 'MemeFlow 配置导出',
+            text: 'MemeFlow 配置文件',
+            url: result.uri,
+            dialogTitle: '导出配置到...'
+          })
+          showToast('请选择保存位置或分享方式')
+        } else {
+          // 浏览器: 使用 Blob 下载
+          var blob = new Blob([jsonStr], { type: 'application/json' })
+          var url = URL.createObjectURL(blob)
+          var a = document.createElement('a')
+          a.href = url
+          a.download = fileName
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          URL.revokeObjectURL(url)
+          showToast('配置已导出')
+        }
+      } catch (e) {
+        if (e.message && e.message.includes('canceled')) {
+          // 用户取消，不显示错误
+          return
+        }
+        showToast('导出失败: ' + (e.message || '未知错误'))
+      }
+    }
+
+    async function selectConfigFile() {
+      // 使用现有的 input 元素
+      var input = document.getElementById('config-file-input')
+
+      // 重置 onchange 事件
+      input.onchange = async function(e) {
+        var file = e.target.files[0]
+        if (!file) {
+          showToast('未选择文件')
+          return
+        }
+
+        showToast('正在读取配置...')
+
+        try {
+          var jsonStr
+
+          if (isAndroid && file.uri && Filesystem) {
+            // Android: 通过 URI 读取文件
+            var result = await Filesystem.readFile({
+              path: file.uri
+            })
+            // 尝试解析 base64 或纯文本
+            try {
+              jsonStr = decodeURIComponent(escape(atob(result.data)))
+            } catch (e) {
+              // 如果不是 base64，直接使用原始数据
+              jsonStr = result.data
+            }
+          } else {
+            // 浏览器: 读取文件
+            jsonStr = await file.text()
+          }
+
+          var configData = JSON.parse(jsonStr)
+
+          // 验证版本
+          if (!configData.version) {
+            showToast('无效的配置文件格式')
+            return
+          }
+
+          // 导入网格配置（覆盖）
+          if (configData.gridConfig) {
+            gridConfig = {
+              rows: Math.min(Math.max(1, configData.gridConfig.rows || 1), 6),
+              cols: Math.min(Math.max(1, configData.gridConfig.cols || 1), 4)
+            }
+            saveGridConfig()
+          }
+
+          // 导入权重（增量合并，同一张表情覆盖）
+          if (configData.weights) {
+            for (var meme in configData.weights) {
+              weights[meme] = configData.weights[meme]
+            }
+            saveWeights()
+          }
+
+          // 导入标签（增量合并，同一张表情覆盖）
+          if (configData.tags) {
+            for (var meme in configData.tags) {
+              memeTags[meme] = configData.tags[meme]
+            }
+            saveTags()
+          }
+
+          // 导入使用记录（增量合并，同一张表情覆盖）
+          if (configData.usage) {
+            for (var meme in configData.usage) {
+              memeUsage[meme] = configData.usage[meme]
+            }
+            saveMemeUsage()
+          }
+
+          // 重新渲染
+          renderGrid()
+          refreshAll()
+          showToast('配置已导入')
+        } catch (e) {
+          showToast('导入失败: ' + (e.message || '请检查文件格式'))
+        }
+
+        // 清空 input 以便下次选择同一文件
+        input.value = ''
+      }
+
+      input.click()
+    }
+    
+    // 刷新按钮点击事件
+    var refreshBtn = document.getElementById('refresh-btn')
+    var refreshLongPressTimer = null
+    var refreshLongPressDuration = 600
+    var isRefreshLongPress = false
+
+    refreshBtn.addEventListener('click', function() {
+      if (isRefreshLongPress) {
+        isRefreshLongPress = false
+        return
+      }
+      refreshAll()
+    })
+
+    // 刷新按钮长按事件 - 返回上一页
+    refreshBtn.addEventListener('touchstart', function(e) {
+      isRefreshLongPress = false
+      refreshLongPressTimer = setTimeout(function() {
+        isRefreshLongPress = true
+        goBackPage()
+      }, refreshLongPressDuration)
+    }, { passive: true })
+
+    refreshBtn.addEventListener('touchend', function(e) {
+      if (refreshLongPressTimer) {
+        clearTimeout(refreshLongPressTimer)
+        refreshLongPressTimer = null
+      }
+    })
+
+    refreshBtn.addEventListener('touchmove', function(e) {
+      if (refreshLongPressTimer) {
+        clearTimeout(refreshLongPressTimer)
+        refreshLongPressTimer = null
+      }
+    }, { passive: true })
+
+    // PC端鼠标长按支持
+    refreshBtn.addEventListener('mousedown', function(e) {
+      isRefreshLongPress = false
+      refreshLongPressTimer = setTimeout(function() {
+        isRefreshLongPress = true
+        goBackPage()
+      }, refreshLongPressDuration)
+    })
+
+    refreshBtn.addEventListener('mouseup', function(e) {
+      if (refreshLongPressTimer) {
+        clearTimeout(refreshLongPressTimer)
+        refreshLongPressTimer = null
+      }
+    })
+
+    refreshBtn.addEventListener('mouseleave', function(e) {
+      if (refreshLongPressTimer) {
+        clearTimeout(refreshLongPressTimer)
+        refreshLongPressTimer = null
+      }
+    })
     document.getElementById('settings-btn').addEventListener('click', openSettings)
     document.getElementById('cancel-btn').addEventListener('click', closeSettings)
     document.getElementById('save-btn').addEventListener('click', saveSettings)
     document.getElementById('import-btn').addEventListener('click', importZip)
+    document.getElementById('expand-grid-btn').addEventListener('click', toggleGridSection)
+    document.getElementById('export-config-btn').addEventListener('click', exportConfig)
+    document.getElementById('import-config-btn').addEventListener('click', selectConfigFile)
+    
+    document.getElementById('grid-rows-input').addEventListener('input', setGridFromInputs)
+    document.getElementById('grid-cols-input').addEventListener('input', setGridFromInputs)
     
     document.getElementById('tag-cancel-btn').addEventListener('click', closeTagModal)
     document.getElementById('tag-save-btn').addEventListener('click', saveTag)
@@ -979,13 +1584,19 @@
     
     document.querySelectorAll('.category-filter-btn').forEach(function(btn) {
       btn.addEventListener('click', function() {
-        selectCategory(btn.dataset.category)
+        if (btn.dataset.category) {
+          selectCategory(btn.dataset.category)
+        } else if (btn.dataset.sort) {
+          selectSort(btn.dataset.sort)
+        }
       })
     })
     
     async function init() {
       loadWeights()
       loadTags()
+      loadGridConfig()
+      loadMemeUsage()
       await loadMemes()
       renderGrid()
       refreshAll()

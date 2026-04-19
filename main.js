@@ -7,6 +7,7 @@ const WEIGHTS_FILE = path.join(app.getPath('userData'), 'meme-weights.json')
 const TAGS_FILE = path.join(app.getPath('userData'), 'meme-tags.json')
 const CONFIG_FILE = path.join(app.getPath('userData'), 'meme-config.json')
 const INDEX_FILE = path.join(app.getPath('userData'), 'meme-index.json')
+const USAGE_FILE = path.join(app.getPath('userData'), 'meme-usage.json')
 const ASSETS_DIR = path.join(app.getPath('userData'), 'assets')
 const DEV_ASSETS_DIR = path.join(__dirname, 'assets')
 
@@ -14,6 +15,7 @@ let weights = {}
 let memeTags = {}
 let appConfig = { gridConfig: { rows: 1, cols: 1 } }
 let memeIndex = []
+let memeUsage = {}
 let prefixSumCache = null
 let cachedFiles = null
 const validExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
@@ -83,6 +85,53 @@ function saveIndex() {
   try {
     fs.writeFileSync(INDEX_FILE, JSON.stringify(memeIndex, null, 2))
   } catch (e) {}
+}
+
+function loadUsage() {
+  try {
+    if (fs.existsSync(USAGE_FILE)) {
+      memeUsage = JSON.parse(fs.readFileSync(USAGE_FILE, 'utf-8'))
+    }
+  } catch (e) {
+    memeUsage = {}
+  }
+}
+
+function saveUsage() {
+  try {
+    fs.writeFileSync(USAGE_FILE, JSON.stringify(memeUsage, null, 2))
+  } catch (e) {}
+}
+
+function recordMemeUsage(memeName) {
+  if (!memeUsage[memeName]) {
+    memeUsage[memeName] = { count: 0, lastUsed: 0 }
+  }
+  memeUsage[memeName].count++
+  memeUsage[memeName].lastUsed = Date.now()
+  saveUsage()
+}
+
+function getSortedMemes(sortType, count) {
+  const assetsPath = getAssetsPath()
+  let sortedMemes = []
+  
+  for (const meme of memeIndex) {
+    const usage = memeUsage[meme] || { count: 0, lastUsed: 0 }
+    sortedMemes.push({
+      name: meme,
+      count: usage.count,
+      lastUsed: usage.lastUsed
+    })
+  }
+  
+  if (sortType === 'most') {
+    sortedMemes.sort((a, b) => b.count - a.count)
+  } else if (sortType === 'recent') {
+    sortedMemes.sort((a, b) => b.lastUsed - a.lastUsed)
+  }
+  
+  return sortedMemes.slice(0, count).map(m => path.join(assetsPath, m.name))
 }
 
 function scanAssetsDir() {
@@ -210,6 +259,7 @@ app.whenReady().then(() => {
   loadTags()
   loadConfig()
   loadIndex()
+  loadUsage()
   updateIndex()
   ensureAssetsDir()
   createWindow()
@@ -284,6 +334,7 @@ ipcMain.handle('increase-weight', (event, memePath) => {
   weights[fileName] = Math.min(currentWeight + 1, 10)
   saveWeights()
   invalidateWeightCache()
+  recordMemeUsage(fileName)
   return weights[fileName]
 })
 
@@ -398,4 +449,88 @@ ipcMain.handle('set-grid-config', (event, config) => {
   }
   saveConfig()
   return appConfig.gridConfig
+})
+
+ipcMain.handle('get-sorted-memes', (event, sortType, count) => {
+  return getSortedMemes(sortType, count)
+})
+
+ipcMain.handle('export-config', async (event, savePath) => {
+  try {
+    const configData = {
+      version: '1.0',
+      exportTime: new Date().toISOString(),
+      gridConfig: appConfig.gridConfig,
+      weights: weights,
+      tags: memeTags,
+      usage: memeUsage
+    }
+    
+    fs.writeFileSync(savePath, JSON.stringify(configData, null, 2), 'utf-8')
+    return { success: true }
+  } catch (e) {
+    return { success: false, error: e.message }
+  }
+})
+
+ipcMain.handle('import-config', async (event, configPath) => {
+  try {
+    const content = fs.readFileSync(configPath, 'utf-8')
+    const configData = JSON.parse(content)
+    
+    // 验证版本
+    if (!configData.version) {
+      return { success: false, error: '无效的配置文件格式' }
+    }
+    
+    // 导入网格配置（覆盖）
+    if (configData.gridConfig) {
+      appConfig.gridConfig = {
+        rows: Math.min(Math.max(1, configData.gridConfig.rows || 1), 6),
+        cols: Math.min(Math.max(1, configData.gridConfig.cols || 1), 4)
+      }
+      saveConfig()
+    }
+    
+    // 导入权重（增量合并，同一张表情覆盖）
+    if (configData.weights) {
+      for (const [meme, weight] of Object.entries(configData.weights)) {
+        weights[meme] = weight
+      }
+      saveWeights()
+      invalidateWeightCache()
+    }
+    
+    // 导入标签（增量合并，同一张表情覆盖）
+    if (configData.tags) {
+      for (const [meme, tag] of Object.entries(configData.tags)) {
+        memeTags[meme] = tag
+      }
+      saveTags()
+    }
+    
+    // 导入使用记录（增量合并，同一张表情覆盖）
+    if (configData.usage) {
+      for (const [meme, usage] of Object.entries(configData.usage)) {
+        memeUsage[meme] = usage
+      }
+      saveUsage()
+    }
+    
+    return { success: true }
+  } catch (e) {
+    return { success: false, error: e.message }
+  }
+})
+
+ipcMain.handle('show-save-dialog', async (event, options) => {
+  const { dialog } = require('electron')
+  const result = await dialog.showSaveDialog(options)
+  return result
+})
+
+ipcMain.handle('show-open-dialog', async (event, options) => {
+  const { dialog } = require('electron')
+  const result = await dialog.showOpenDialog(options)
+  return result
 })

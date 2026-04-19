@@ -5,6 +5,11 @@ import sys
 import json
 
 PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def get_version():
+    with open(os.path.join(PROJECT_DIR, "package.json"), "r", encoding="utf-8") as f:
+        pkg = json.load(f)
+    return pkg.get("version", "1.0.0")
 ASSETS_DIR = os.path.join(PROJECT_DIR, "assets")
 SOURCE_DIR = os.path.join(PROJECT_DIR, "-qq-vv-awa")
 ANDROID_DIR = os.path.join(PROJECT_DIR, "android")
@@ -60,13 +65,33 @@ def build_apk(version_name="full"):
     env = os.environ.copy()
     env["JAVA_HOME"] = r"C:\Program Files\Microsoft\jdk-21.0.10.7-hotspot"
     gradlew = os.path.join(ANDROID_DIR, "gradlew.bat")
-    subprocess.run([gradlew, "clean", "assembleDebug"], cwd=ANDROID_DIR, env=env, shell=True)
-    apk_path = os.path.join(ANDROID_DIR, "app", "build", "outputs", "apk", "debug", "app-debug.apk")
+    version = get_version()
+    
+    # 生成签名密钥（如果不存在）
+    key_file = os.path.join(ANDROID_DIR, "app", "release-key.jks")
+    if not os.path.exists(key_file):
+        print("生成签名密钥...")
+        keytool = os.path.join(env["JAVA_HOME"], "bin", "keytool.exe")
+        subprocess.run([
+            keytool, "-genkey", "-v",
+            "-keystore", key_file,
+            "-alias", "memerandom",
+            "-keyalg", "RSA",
+            "-keysize", "2048",
+            "-validity", "10000",
+            "-storepass", "memerandom123",
+            "-keypass", "memerandom123",
+            "-dname", "CN=MemeRandom, OU=Meme, O=Random, L=Unknown, ST=Unknown, C=CN"
+        ], cwd=ANDROID_DIR, env=env, shell=True)
+    
+    # 构建 Release 版本 APK
+    subprocess.run([gradlew, "clean", "assembleRelease"], cwd=ANDROID_DIR, env=env, shell=True)
+    apk_path = os.path.join(ANDROID_DIR, "app", "build", "outputs", "apk", "release", "app-release.apk")
     if os.path.exists(apk_path):
         size_mb = os.path.getsize(apk_path) / (1024*1024)
         print(f"APK: {size_mb:.2f} MB -> {apk_path}")
         os.makedirs(RELEASE_DIR, exist_ok=True)
-        release_apk = os.path.join(RELEASE_DIR, f"meme-random-{version_name}.apk")
+        release_apk = os.path.join(RELEASE_DIR, f"MemeFlow-v{version}-{version_name.capitalize()}.apk")
         shutil.copy(apk_path, release_apk)
         print(f"已复制到: {release_apk}")
 
@@ -74,6 +99,7 @@ def build_exe(version_name="full"):
     if os.path.exists(DIST_DIR):
         shutil.rmtree(DIST_DIR)
     subprocess.run(["npm", "run", "build:win"], cwd=PROJECT_DIR, shell=True)
+    version = get_version()
     if os.path.exists(DIST_DIR):
         os.makedirs(RELEASE_DIR, exist_ok=True)
         for f in os.listdir(DIST_DIR):
@@ -81,9 +107,11 @@ def build_exe(version_name="full"):
                 src = os.path.join(DIST_DIR, f)
                 size_mb = os.path.getsize(src) / (1024*1024)
                 print(f"EXE: {size_mb:.2f} MB -> {src}")
-                name = os.path.splitext(f)[0]
-                ext = os.path.splitext(f)[1]
-                dst = os.path.join(RELEASE_DIR, f"{name}-{version_name}{ext}")
+                # 统一命名格式: MemeFlow-v{version}-{Full/Lite}-{Portable/Setup}.exe
+                if "Setup" in f:
+                    dst = os.path.join(RELEASE_DIR, f"MemeFlow-v{version}-{version_name.capitalize()}-Setup.exe")
+                else:
+                    dst = os.path.join(RELEASE_DIR, f"MemeFlow-v{version}-{version_name.capitalize()}-Portable.exe")
                 shutil.copy(src, dst)
                 print(f"已复制到: {dst}")
 

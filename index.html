@@ -424,6 +424,11 @@
         <label>导入表情包 (zip)</label>
         <button class="import-btn" onclick="importZip()">点击选择 zip 文件</button>
       </div>
+      <div class="modal-section">
+        <label>配置管理</label>
+        <button class="import-btn" onclick="exportConfig()" style="margin-bottom: 8px;">导出配置</button>
+        <button class="import-btn" onclick="importConfig()">导入配置</button>
+      </div>
       <div class="modal-buttons">
         <button class="btn-cancel" onclick="closeSettings()">取消</button>
         <button class="btn-save" onclick="saveSettings()">保存</button>
@@ -479,6 +484,13 @@
             <button class="category-filter-btn" onclick="selectCategory('sad')">悲伤/委屈</button>
             <button class="category-filter-btn" onclick="selectCategory('shock')">震惊/愤怒</button>
             <button class="category-filter-btn" onclick="selectCategory('social')">阴阳怪气/社交</button>
+          </div>
+        </div>
+        <div class="modal-section">
+          <label>排序</label>
+          <div class="category-filter-list">
+            <button class="category-filter-btn" onclick="selectSort('most')">最多使用</button>
+            <button class="category-filter-btn" onclick="selectSort('recent')">最近使用</button>
           </div>
         </div>
       </div>
@@ -564,14 +576,26 @@
       
       currentMemes = []
       
+      // Handle sort filter
+      let sortedMemes = null
+      if (currentFilter && currentFilter.type === 'sort') {
+        sortedMemes = await ipcRenderer.invoke('get-sorted-memes', currentFilter.value, total)
+      }
+      
       for (let i = 0; i < total; i++) {
         const img = items[i].querySelector('img')
         const weightLabel = items[i].querySelector('.meme-weight')
         const tagLabel = items[i].querySelector('.meme-tag')
         img.style.opacity = '0.5'
         
-        const useWeight = !(hasPureRandom && i === 0)
-        const memePath = await ipcRenderer.invoke('get-random-meme', useWeight, currentFilter, currentMemes)
+        let memePath = null
+        
+        if (sortedMemes && sortedMemes[i]) {
+          memePath = sortedMemes[i]
+        } else {
+          const useWeight = !(hasPureRandom && i === 0)
+          memePath = await ipcRenderer.invoke('get-random-meme', useWeight, currentFilter, currentMemes)
+        }
         
         if (!memePath) {
           img.src = ''
@@ -813,11 +837,57 @@
       refreshAll()
     }
     
+    function selectSort(sortType) {
+      currentFilter = { type: 'sort', value: sortType }
+      document.getElementById('mode-tag').textContent = sortType === 'most' ? '最多使用' : '最近使用'
+      document.getElementById('mode-tag').classList.add('show')
+      closeSearch()
+      refreshAll()
+    }
+    
     function clearFilter() {
       currentFilter = null
       document.getElementById('mode-tag').textContent = 'tags'
       document.getElementById('mode-tag').classList.remove('show')
       refreshAll()
+    }
+    
+    async function exportConfig() {
+      const result = await ipcRenderer.invoke('show-save-dialog', {
+        defaultPath: 'memeflow-config.json',
+        filters: [{ name: 'JSON Files', extensions: ['json'] }]
+      })
+      
+      if (!result.canceled && result.filePath) {
+        const res = await ipcRenderer.invoke('export-config', result.filePath)
+        if (res.success) {
+          showToast('配置已导出')
+        } else {
+          showToast('导出失败: ' + res.error)
+        }
+      }
+    }
+    
+    async function importConfig() {
+      const result = await ipcRenderer.invoke('show-open-dialog', {
+        filters: [{ name: 'JSON Files', extensions: ['json'] }],
+        properties: ['openFile']
+      })
+      
+      if (!result.canceled && result.filePaths.length > 0) {
+        const res = await ipcRenderer.invoke('import-config', result.filePaths[0])
+        if (res.success) {
+          const savedConfig = await ipcRenderer.invoke('get-grid-config')
+          if (savedConfig) {
+            gridConfig = savedConfig
+            renderGrid()
+          }
+          refreshAll()
+          showToast('配置已导入')
+        } else {
+          showToast('导入失败: ' + res.error)
+        }
+      }
     }
     
     let refreshInterval = null
