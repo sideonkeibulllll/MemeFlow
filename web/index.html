@@ -1003,6 +1003,10 @@
 
     // 返回上一页
     function goBackPage() {
+      // 先保存当前页面到历史记录，确保可见页面在历史中
+      // 避免 refreshAll 生成新页面后（新页面尚未存入历史）直接回退导致跳页
+      saveCurrentPageToHistory()
+
       if (currentHistoryIndex <= 0) {
         showToast('已经是第一页了')
         return false

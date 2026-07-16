@@ -66,7 +66,7 @@ def build_apk(version_name="full"):
         size_mb = os.path.getsize(apk_path) / (1024*1024)
         print(f"APK: {size_mb:.2f} MB -> {apk_path}")
         os.makedirs(RELEASE_DIR, exist_ok=True)
-        apk_version = "1.3.5"
+        apk_version = "1.3.6"
         release_apk = os.path.join(RELEASE_DIR, f"meme-random-v{apk_version}.apk")
         shutil.copy(apk_path, release_apk)
         print(f"已复制到: {release_apk}")
