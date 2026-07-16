@@ -1,13 +1,8 @@
 {
-  "appId": "com.memeflow.app",
-  "appName": "MemeFlow",
+  "appId": "com.meme.random",
+  "appName": "随机表情包",
   "webDir": "web",
   "server": {
     "androidScheme": "https"
-  },
-  "plugins": {
-    "SplashScreen": {
-      "launchShowDuration": 0
-    }
   }
 }

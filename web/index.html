@@ -614,6 +614,7 @@
         <div class="modal-section">
           <label>排序</label>
           <div class="category-filter-list">
+            <button class="category-filter-btn sort-btn" data-sort="order">顺序浏览</button>
             <button class="category-filter-btn sort-btn" data-sort="most">最多使用</button>
             <button class="category-filter-btn sort-btn" data-sort="recent">最近使用</button>
           </div>
@@ -883,7 +884,9 @@
         })
       }
       
-      if (sortType === 'most') {
+      if (sortType === 'order') {
+        sortedMemes.sort(function(a, b) { return a.name.localeCompare(b.name) })
+      } else if (sortType === 'most') {
         sortedMemes.sort(function(a, b) { return b.count - a.count })
       } else if (sortType === 'recent') {
         sortedMemes.sort(function(a, b) { return b.lastUsed - a.lastUsed })
@@ -1393,7 +1396,8 @@
     
     function selectSort(sortType) {
       currentFilter = { type: 'sort', value: sortType }
-      document.getElementById('mode-tag').textContent = sortType === 'most' ? '最多使用' : '最近使用'
+      var labelMap = { most: '最多使用', recent: '最近使用', order: '顺序浏览' }
+      document.getElementById('mode-tag').textContent = labelMap[sortType] || sortType
       document.getElementById('mode-tag').classList.add('show')
       closeSearch()
       refreshAll()

@@ -53,9 +53,7 @@ web/assets/
 *.jpeg
 *.webp
 !icon.ico
-
-# But keep Android launcher icons
-!android/app/src/main/res/mipmap-*/ic_launcher*.png
+!icon.png
 
 # Temporary files
 *.tmp
@@ -64,10 +62,3 @@ temp_check.js
 
 # Old version backup
 MemeFlow-1.0.0/
-
-# Privacy release folder
-privacy-realse/
-
-# Android signing files
-android/app/generate-key.bat
-android/app/release-key.jks
