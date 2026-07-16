@@ -246,6 +246,39 @@
       border-color: #333;
     }
     
+    .star-btn {
+      width: 100%;
+      padding: 10px;
+      background: #fff8e1;
+      border: 1px solid #ffd54f;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .star-btn.starred {
+      background: #ffd54f;
+      border-color: #f9a825;
+      color: #5d4037;
+    }
+    
+    .star-filter-btn {
+      width: 100%;
+      padding: 10px;
+      background: #f0f0f0;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .star-filter-btn.active {
+      background: #ffd54f;
+      border-color: #f9a825;
+      color: #5d4037;
+    }
+    
     .import-btn {
       width: 100%;
       padding: 10px;
@@ -590,6 +623,10 @@
           <button class="category-btn" data-category="social">阴阳怪气/社交</button>
         </div>
       </div>
+      <div class="modal-section">
+        <label>星标</label>
+        <button class="star-btn" id="star-toggle-btn">☆ 未星标</button>
+      </div>
       <div class="modal-buttons">
         <button class="btn-cancel" id="tag-cancel-btn">取消</button>
         <button class="btn-save" id="tag-save-btn">保存</button>
@@ -607,6 +644,9 @@
       <div id="tag-search-section">
         <div class="modal-section">
           <input type="text" id="search-input" placeholder="输入标签搜索">
+        </div>
+        <div class="modal-section">
+          <button class="star-filter-btn" id="star-filter-btn">★ 星标</button>
         </div>
         <div class="modal-section">
           <div class="search-results" id="search-results">
@@ -660,6 +700,11 @@
     var pageHistory = []
     var currentHistoryIndex = -1
     var maxHistorySize = 10
+
+    // 排序模式分页偏移
+    var sortPageOffset = 0
+
+    var memeStarred = {}
 
     var isAndroid = typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()
     var Share = isAndroid ? Capacitor.Plugins.Share : null
@@ -737,6 +782,23 @@
     function saveMemeUsage() {
       try {
         localStorage.setItem('meme-usage', JSON.stringify(memeUsage))
+      } catch (e) {}
+    }
+
+    function loadStarred() {
+      try {
+        var saved = localStorage.getItem('meme-starred')
+        if (saved) {
+          memeStarred = JSON.parse(saved)
+        }
+      } catch (e) {
+        memeStarred = {}
+      }
+    }
+
+    function saveStarred() {
+      try {
+        localStorage.setItem('meme-starred', JSON.stringify(memeStarred))
       } catch (e) {}
     }
     
@@ -986,8 +1048,16 @@
         sortedMemes.sort(function(a, b) { return b.lastUsed - a.lastUsed })
       }
       
+      // 使用偏移量分页
+      var start = sortPageOffset * count
+      if (start >= sortedMemes.length) {
+        // 超出范围则回到第一页
+        sortPageOffset = 0
+        start = 0
+      }
+      
       var result = []
-      for (var i = 0; i < Math.min(count, sortedMemes.length); i++) {
+      for (var i = start; i < Math.min(start + count, sortedMemes.length); i++) {
         result.push(sortedMemes[i].name)
       }
       
@@ -1085,16 +1155,11 @@
 
     // 返回上一页
     function goBackPage() {
-      // 先保存当前页面到历史记录，确保可见页面在历史中
-      // 避免 refreshAll 生成新页面后（新页面尚未存入历史）直接回退导致跳页
-      saveCurrentPageToHistory()
-
       if (currentHistoryIndex <= 0) {
         showToast('已经是第一页了')
         return false
       }
 
-      // 只返回一页，不循环
       currentHistoryIndex--
       var prevPage = pageHistory[currentHistoryIndex]
 
@@ -1174,9 +1239,6 @@
         return
       }
 
-      // 在历史末尾，生成新页面并保存
-      saveCurrentPageToHistory()
-
       var items = document.querySelectorAll('.meme-item')
       var total = items.length
       var hasPureRandom = total > 3 && !currentFilter
@@ -1184,6 +1246,7 @@
       var sortedMemes = null
       if (currentFilter && currentFilter.type === 'sort') {
         sortedMemes = getSortedMemes(currentFilter.value, total)
+        sortPageOffset++
       }
 
       for (var i = 0; i < total; i++) {
@@ -1232,6 +1295,9 @@
           img.onload = function() { this.style.opacity = '1' }
         }
       }
+
+      // 将新页面保存到历史记录
+      saveCurrentPageToHistory()
 
       updateRefreshButtonText()
     }
@@ -1361,6 +1427,16 @@
         } else {
           document.getElementById('tag-input').value = ''
         }
+        
+        // 显示星标状态
+        var starBtn = document.getElementById('star-toggle-btn')
+        if (memeStarred[memeName]) {
+          starBtn.textContent = '★ 已星标'
+          starBtn.classList.add('starred')
+        } else {
+          starBtn.textContent = '☆ 未星标'
+          starBtn.classList.remove('starred')
+        }
       } else {
         document.getElementById('tag-input').value = ''
       }
@@ -1407,9 +1483,29 @@
       })
     })
     
+    document.getElementById('star-toggle-btn').addEventListener('click', function() {
+      var memeName = currentMemes[currentTagEditIndex]
+      if (!memeName) return
+      if (memeStarred[memeName]) {
+        delete memeStarred[memeName]
+        this.textContent = '☆ 未星标'
+        this.classList.remove('starred')
+      } else {
+        memeStarred[memeName] = true
+        this.textContent = '★ 已星标'
+        this.classList.add('starred')
+      }
+      saveStarred()
+    })
+    
     function openSearch() {
       document.getElementById('search-input').value = ''
       document.getElementById('search-results').innerHTML = '<div class="no-results">输入关键词搜索</div>'
+      // 重置星标筛选状态
+      starFilterActive = false
+      var starFilterBtn = document.getElementById('star-filter-btn')
+      starFilterBtn.textContent = '★ 星标'
+      starFilterBtn.classList.remove('active')
       setSearchType('tag')
       document.getElementById('search-modal').classList.add('show')
       setTimeout(function() { document.getElementById('search-input').focus() }, 100)
@@ -1427,26 +1523,37 @@
       document.getElementById('category-search-section').style.display = type === 'category' ? 'block' : 'none'
     }
     
+    var starFilterActive = false
+
     function performSearch() {
       var query = document.getElementById('search-input').value.trim().toLowerCase()
       var resultsDiv = document.getElementById('search-results')
       
-      if (!query) {
-        resultsDiv.innerHTML = '<div class="no-results">输入关键词搜索</div>'
-        return
-      }
-      
       var results = []
       
-      for (var i = 0; i < memes.length; i++) {
-        var meme = memes[i]
-        var tag = memeTags[meme] || null
+      // 星标模式：显示所有星标表情
+      if (starFilterActive) {
+        for (var i = 0; i < memes.length; i++) {
+          var meme = memes[i]
+          if (memeStarred[meme]) {
+            var tag = memeTags[meme] || null
+            results.push({ name: meme, tag: tag })
+          }
+        }
+      } else {
+        // 普通标签搜索模式
+        if (!query) {
+          resultsDiv.innerHTML = '<div class="no-results">输入关键词搜索</div>'
+          return
+        }
         
-        if (tag && tag.text && tag.text.toLowerCase().indexOf(query) >= 0) {
-          results.push({
-            name: meme,
-            tag: tag
-          })
+        for (var i = 0; i < memes.length; i++) {
+          var meme = memes[i]
+          var tag = memeTags[meme] || null
+          
+          if (tag && tag.text && tag.text.toLowerCase().indexOf(query) >= 0) {
+            results.push({ name: meme, tag: tag })
+          }
         }
       }
       
@@ -1458,10 +1565,11 @@
       var html = ''
       for (var i = 0; i < results.length; i++) {
         var r = results[i]
+        var starIcon = memeStarred[r.name] ? '★' : '☆'
         html += '<div class="search-result-item" data-meme="' + r.name + '">'
         html += '<img src="meme/' + r.name + '?t=' + Date.now() + '">'
         html += '<div class="search-result-info">'
-        html += '<div class="search-result-name">' + r.name + '</div>'
+        html += '<div class="search-result-name">' + starIcon + ' ' + r.name + '</div>'
         html += '<div class="search-result-tag">' + (r.tag && r.tag.text ? r.tag.text : '无标签') + '</div>'
         html += '<div class="search-result-category">' + (r.tag && r.tag.category ? categoryNames[r.tag.category] : '') + '</div>'
         html += '</div></div>'
@@ -1516,6 +1624,7 @@
     
     function selectSort(sortType) {
       currentFilter = { type: 'sort', value: sortType }
+      sortPageOffset = 0
       var labelMap = { most: '最多使用', recent: '最近使用', order: '顺序浏览' }
       document.getElementById('mode-tag').textContent = labelMap[sortType] || sortType
       document.getElementById('mode-tag').classList.add('show')
@@ -1525,6 +1634,7 @@
     
     function clearFilter() {
       currentFilter = null
+      sortPageOffset = 0
       document.getElementById('mode-tag').textContent = 'tags'
       document.getElementById('mode-tag').classList.remove('show')
       refreshAll()
@@ -1617,7 +1727,8 @@
           gridConfig: gridConfig,
           weights: weights,
           tags: memeTags,
-          usage: memeUsage
+          usage: memeUsage,
+          starred: memeStarred
         }
 
         var jsonStr = JSON.stringify(configData, null, 2)
@@ -1735,6 +1846,16 @@
             saveMemeUsage()
           }
 
+          // 导入星标（增量合并）
+          if (configData.starred) {
+            for (var meme in configData.starred) {
+              if (configData.starred[meme]) {
+                memeStarred[meme] = true
+              }
+            }
+            saveStarred()
+          }
+
           // 重新渲染
           renderGrid()
           refreshAll()
@@ -1849,6 +1970,12 @@
     document.getElementById('search-type-category').addEventListener('click', function() { setSearchType('category') })
     document.getElementById('search-input').addEventListener('input', performSearch)
     document.getElementById('mode-tag').addEventListener('click', clearFilter)
+    document.getElementById('star-filter-btn').addEventListener('click', function() {
+      starFilterActive = !starFilterActive
+      this.classList.toggle('active', starFilterActive)
+      this.textContent = starFilterActive ? '★ 星标 (已启用)' : '★ 星标'
+      performSearch()
+    })
     
     document.querySelectorAll('.category-filter-btn').forEach(function(btn) {
       btn.addEventListener('click', function() {
@@ -1865,6 +1992,7 @@
       loadTags()
       loadGridConfig()
       loadMemeUsage()
+      loadStarred()
       await loadMemes()
       renderGrid()
       refreshAll()
