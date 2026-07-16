@@ -563,7 +563,8 @@
       <div class="modal-section">
         <label>配置管理</label>
         <button class="import-btn" id="export-config-btn" style="margin-bottom: 8px;">导出配置</button>
-        <button class="import-btn" id="import-config-btn">导入配置</button>
+        <button class="import-btn" id="import-config-btn" style="margin-bottom: 8px;">导入配置</button>
+        <button class="import-btn" id="reindex-btn">重新生成索引</button>
         <input type="file" id="config-file-input" accept=".json" style="display:none">
       </div>
       <div class="modal-buttons">
@@ -748,23 +749,103 @@
       saveMemeUsage()
     }
     
+    // 重新生成索引: 扫描 meme/ 目录, 构建 meme/index.json
+    async function regenerateIndex() {
+      if (!isAndroid || !Filesystem) {
+        memes = []
+        return
+      }
+      try {
+        // 确保 meme 目录存在
+        try {
+          await Filesystem.mkdir({ path: 'meme', directory: 'Data', recursive: true })
+        } catch (e) {}
+
+        var result = await Filesystem.readdir({ path: 'meme', directory: 'Data' })
+        var indexData = {}
+        memes = []
+
+        for (var i = 0; i < result.files.length; i++) {
+          var entry = result.files[i]
+          var entryPath = 'meme/' + entry.name
+
+          var stat
+          try {
+            stat = await Filesystem.stat({ path: entryPath, directory: 'Data' })
+          } catch (e) { continue }
+
+          if (stat.type === 'directory') {
+            // 子文件夹: 读取其中的图片
+            var folderResult
+            try {
+              folderResult = await Filesystem.readdir({ path: entryPath, directory: 'Data' })
+            } catch (e) { continue }
+
+            var folderFiles = []
+            for (var j = 0; j < folderResult.files.length; j++) {
+              var f = folderResult.files[j]
+              var ext = f.name.split('.').pop().toLowerCase()
+              if (['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(ext) >= 0) {
+                folderFiles.push(f.name)
+                memes.push(entry.name + '/' + f.name)
+              }
+            }
+            if (folderFiles.length > 0) {
+              indexData[entry.name] = folderFiles
+            }
+          } else if (stat.type === 'file') {
+            // 根目录的文件: 归入 "默认" 文件夹
+            var ext = entry.name.split('.').pop().toLowerCase()
+            if (['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(ext) >= 0) {
+              if (!indexData['默认']) indexData['默认'] = []
+              indexData['默认'].push(entry.name)
+              memes.push('默认/' + entry.name)
+            }
+          }
+        }
+
+        // 保存索引文件
+        await Filesystem.writeFile({
+          path: 'meme/index.json',
+          data: JSON.stringify(indexData),
+          directory: 'Data',
+          recursive: true
+        })
+      } catch (e) {
+        memes = []
+      }
+    }
+
     async function loadMemes() {
       if (isAndroid && Filesystem) {
         try {
-          var result = await Filesystem.readdir({
-            path: 'assets',
+          // 尝试读取 meme/index.json
+          var indexResult = await Filesystem.readFile({
+            path: 'meme/index.json',
             directory: 'Data'
           })
-          memes = result.files.filter(function(f) {
-            var ext = f.name.split('.').pop().toLowerCase()
-            return ['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(ext) >= 0
-          }).map(function(f) { return f.name })
-          return
+          var indexData = JSON.parse(indexResult.data)
+          memes = []
+          for (var folder in indexData) {
+            var files = indexData[folder]
+            for (var i = 0; i < files.length; i++) {
+              memes.push(folder + '/' + files[i])
+            }
+          }
+          if (memes.length > 0) return
         } catch (e) {}
+        // 索引不存在或为空, 重新生成
+        await regenerateIndex()
+        return
       }
+      // 非 Android 环境兜底
       try {
         var response = await fetch('assets/memes.json')
-        memes = await response.json()
+        var flatMemes = await response.json()
+        memes = []
+        for (var i = 0; i < flatMemes.length; i++) {
+          memes.push('默认/' + flatMemes[i])
+        }
       } catch (e) {
         memes = []
       }
@@ -856,6 +937,7 @@
       if (currentFilter) {
         if (currentFilter.type === 'category') {
           filteredMemes = memes.filter(function(meme) {
+            // meme 格式: "folder/filename", 用完整路径作为 tag/weight 的 key
             var tag = memeTags[meme]
             if (!tag) return false
             return tag.category === currentFilter.value
@@ -1034,9 +1116,9 @@
         }
 
         // 返回历史页面时不加时间戳，避免重新加载图片
-        img.src = 'assets/' + memeName
+        img.src = 'meme/' + memeName
         weightLabel.textContent = weights[memeName] || 1
-
+        
         var tag = memeTags[memeName]
         tagLabel.textContent = tag ? (tag.text || '') : ''
       }
@@ -1073,9 +1155,9 @@
           continue
         }
 
-        img.src = 'assets/' + memeName
+        img.src = 'meme/' + memeName
         weightLabel.textContent = weights[memeName] || 1
-
+        
         var tag = memeTags[memeName]
         tagLabel.textContent = tag ? (tag.text || '') : ''
       }
@@ -1127,14 +1209,27 @@
           continue
         }
 
-        img.src = 'assets/' + memeName + '?t=' + Date.now() + '-' + i
         weightLabel.textContent = weights[memeName] || 1
-
         var tag = memeTags[memeName]
         tagLabel.textContent = tag ? (tag.text || '') : ''
 
-        img.onload = function() {
-          this.style.opacity = '1'
+        // 加载图片: Android 使用 Filesystem 读取 base64, 其他平台使用相对路径
+        if (isAndroid && Filesystem) {
+          try {
+            var fileResult = await Filesystem.readFile({
+              path: 'meme/' + memeName,
+              directory: 'Data'
+            })
+            var ext = memeName.split('.').pop().toLowerCase()
+            img.src = 'data:image/' + ext + ';base64,' + fileResult.data
+            img.onload = function() { this.style.opacity = '1' }
+          } catch (e) {
+            img.src = ''
+            img.style.opacity = '1'
+          }
+        } else {
+          img.src = 'meme/' + memeName + '?t=' + Date.now() + '-' + i
+          img.onload = function() { this.style.opacity = '1' }
         }
       }
 
@@ -1154,42 +1249,37 @@
       
       if (isAndroid && Share && Filesystem) {
         try {
-          var response = await fetch('assets/' + memeName)
-          var blob = await response.blob()
+          // 从 meme/ 目录读取图片 base64
+          var fileResult = await Filesystem.readFile({
+            path: 'meme/' + memeName,
+            directory: 'Data'
+          })
+          var ext = memeName.split('.').pop().toLowerCase()
+          var fileName = 'meme_' + Date.now() + '.' + ext
           
-          var reader = new FileReader()
-          reader.onload = async function() {
-            try {
-              var base64Data = reader.result.split(',')[1]
-              var ext = memeName.split('.').pop().toLowerCase()
-              var fileName = 'meme_' + Date.now() + '.' + ext
+          // 写入缓存目录用于分享
+          var writeResult = await Filesystem.writeFile({
+            path: fileName,
+            data: fileResult.data,
+            directory: 'Cache'
+          })
+          
+          await Share.share({
+            title: '表情包',
+            url: writeResult.uri
+          })
               
-              var result = await Filesystem.writeFile({
-                path: fileName,
-                data: base64Data,
-                directory: 'Cache'
-              })
-              
-              await Share.share({
-                title: '表情包',
-                url: result.uri
-              })
-                  
-                  weights[memeName] = (weights[memeName] || 1) + 1
-                  saveWeights()
-                  recordMemeUsage(memeName)
-                  
-                  var weightLabel = document.querySelectorAll('.meme-weight')[index]
-                  weightLabel.textContent = weights[memeName]
-            } catch (e) {
-              if (e.message !== 'User canceled share') {
-                showToast('分享失败: ' + (e.message || '未知错误'))
-              }
-            }
-          }
-          reader.readAsDataURL(blob)
+          weights[memeName] = (weights[memeName] || 1) + 1
+          saveWeights()
+          recordMemeUsage(memeName)
+          
+          var weightLabel = document.querySelectorAll('.meme-weight')[index]
+          weightLabel.textContent = weights[memeName]
         } catch (e) {
-          showToast('读取文件失败')
+          if (e.message && e.message.indexOf('canceled') >= 0) {
+            return
+          }
+          showToast('分享失败: ' + (e.message || '未知错误'))
         }
       } else {
         weights[memeName] = (weights[memeName] || 1) + 1
@@ -1369,7 +1459,7 @@
       for (var i = 0; i < results.length; i++) {
         var r = results[i]
         html += '<div class="search-result-item" data-meme="' + r.name + '">'
-        html += '<img src="assets/' + r.name + '?t=' + Date.now() + '">'
+        html += '<img src="meme/' + r.name + '?t=' + Date.now() + '">'
         html += '<div class="search-result-info">'
         html += '<div class="search-result-name">' + r.name + '</div>'
         html += '<div class="search-result-tag">' + (r.tag && r.tag.text ? r.tag.text : '无标签') + '</div>'
@@ -1394,7 +1484,21 @@
       var tagLabel = items[0].querySelector('.meme-tag')
       
       currentMemes[0] = memeName
-      img.src = 'assets/' + memeName + '?t=' + Date.now()
+      
+      if (isAndroid && Filesystem) {
+        try {
+          var fileResult = await Filesystem.readFile({
+            path: 'meme/' + memeName,
+            directory: 'Data'
+          })
+          var ext = memeName.split('.').pop().toLowerCase()
+          img.src = 'data:image/' + ext + ';base64,' + fileResult.data
+        } catch (e) {
+          img.src = ''
+        }
+      } else {
+        img.src = 'meme/' + memeName + '?t=' + Date.now()
+      }
       
       weightLabel.textContent = weights[memeName] || 1
       
@@ -1427,6 +1531,14 @@
     }
     
     async function importZip() {
+      // 提示输入文件夹名称
+      var folderName = prompt('请输入导入到的文件夹名称:', '导入')
+      if (!folderName || folderName.trim() === '') {
+        showToast('已取消导入')
+        return
+      }
+      folderName = folderName.trim()
+
       // 使用现有的 input 元素
       var input = document.getElementById('zip-file-input')
 
@@ -1448,7 +1560,7 @@
           var validExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
           var entries = Object.entries(zip.files)
 
-          showToast('正在解压 ' + entries.length + ' 个文件...')
+          showToast('正在解压到 ' + folderName + ' 文件夹...')
 
           for (var i = 0; i < entries.length; i++) {
             var filename = entries[i][0]
@@ -1460,10 +1572,9 @@
                 var content = await zipEntry.async('base64')
 
                 if (isAndroid && Filesystem) {
-                  // Android: 写入到应用私有目录
                   try {
                     await Filesystem.writeFile({
-                      path: 'assets/' + baseName,
+                      path: 'meme/' + folderName + '/' + baseName,
                       data: content,
                       directory: 'Data',
                       recursive: true
@@ -1473,17 +1584,17 @@
                     console.error('写入文件失败:', baseName, writeErr)
                   }
                 } else {
-                  // 浏览器环境暂不支持保存文件
-                  console.log('浏览器环境跳过保存:', baseName)
+                  console.log('非 Android 环境跳过保存:', baseName)
                 }
               }
             }
           }
 
           if (count > 0) {
-            await loadMemes()
-            showToast('成功导入 ' + count + ' 张表情包')
+            showToast('成功导入 ' + count + ' 张表情包, 正在重新生成索引...')
+            await regenerateIndex()
             refreshAll()
+            showToast('成功导入 ' + count + ' 张表情包到 [' + folderName + ']')
           } else {
             showToast('ZIP 中没有找到有效的图片文件')
           }
@@ -1492,7 +1603,6 @@
           showToast('导入失败: ' + (e.message || '请检查 ZIP 文件格式'))
         }
 
-        // 清空 input 以便下次选择同一文件
         input.value = ''
       }
 
@@ -1719,6 +1829,13 @@
     document.getElementById('expand-grid-btn').addEventListener('click', toggleGridSection)
     document.getElementById('export-config-btn').addEventListener('click', exportConfig)
     document.getElementById('import-config-btn').addEventListener('click', selectConfigFile)
+    document.getElementById('reindex-btn').addEventListener('click', async function() {
+      showToast('正在重新生成索引...')
+      await regenerateIndex()
+      renderGrid()
+      refreshAll()
+      showToast('索引已重新生成')
+    })
     
     document.getElementById('grid-rows-input').addEventListener('input', setGridFromInputs)
     document.getElementById('grid-cols-input').addEventListener('input', setGridFromInputs)
