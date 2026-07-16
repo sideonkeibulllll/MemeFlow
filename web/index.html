@@ -1694,18 +1694,13 @@
     }
     
     async function importZip() {
-      // 使用自定义 modal 输入文件夹名称，替代 prompt (Android WebView 中 prompt 后的 click 可能被阻止)
-      var folderName = prompt('请输入导入到的文件夹名称:', '导入')
-      if (!folderName || folderName.trim() === '') {
-        showToast('已取消导入')
-        return
-      }
-      folderName = folderName.trim()
-
-      // 使用现有的 input 元素
+      // 直接选文件，不再弹 prompt 问文件夹名
       var input = document.getElementById('zip-file-input')
 
-      // 先绑定事件，再触发 click，确保事件绑定完成
+      // 根据导入时间创建文件夹名，避免重名覆盖
+      var now = new Date()
+      var folderName = '导入' + now.getFullYear() + '-' + pad2(now.getMonth()+1) + '-' + pad2(now.getDate()) + '-' + pad2(now.getHours()) + '-' + pad2(now.getMinutes())
+
       input.onchange = async function(e) {
         var file = e.target.files[0]
         if (!file) {
@@ -1770,7 +1765,7 @@
         input.value = ''
       }
 
-      // 延迟触发 click，确保 onchange 已绑定
+      // 延迟触发 click
       setTimeout(function() { input.click() }, 100)
     }
     
@@ -1789,21 +1784,43 @@
         var jsonStr = JSON.stringify(configData, null, 2)
         var fileName = 'memeflow-config-' + new Date().getTime() + '.json'
 
-        if (isAndroid && Share && Filesystem) {
-          // Android: 先写入缓存目录，然后通过系统分享
-          var result = await Filesystem.writeFile({
-            path: fileName,
-            data: btoa(unescape(encodeURIComponent(jsonStr))),
-            directory: 'Cache'
-          })
+        if (isAndroid && Filesystem) {
+          // 先自动保存一份到 Data/meme/ 目录 (借鉴初始化策略，持久保存到私有目录)
+          try {
+            await Filesystem.writeFile({
+              path: 'meme/' + fileName,
+              data: btoa(unescape(encodeURIComponent(jsonStr))),
+              directory: 'Data',
+              recursive: true
+            })
+            showToast('配置已保存到应用目录')
+          } catch (saveErr) {
+            console.error('自动保存配置失败:', saveErr)
+          }
 
-          await Share.share({
-            title: 'MemeFlow 配置导出',
-            text: 'MemeFlow 配置文件',
-            url: result.uri,
-            dialogTitle: '导出配置到...'
-          })
-          showToast('请选择保存位置或分享方式')
+          // 再通过系统分享导出到外部
+          if (Share) {
+            try {
+              var result = await Filesystem.writeFile({
+                path: fileName,
+                data: btoa(unescape(encodeURIComponent(jsonStr))),
+                directory: 'Cache'
+              })
+
+              await Share.share({
+                title: 'MemeFlow 配置导出',
+                text: 'MemeFlow 配置文件',
+                url: result.uri,
+                dialogTitle: '导出配置到...'
+              })
+              showToast('配置已保存到应用目录')
+            } catch (shareErr) {
+              if (shareErr.message && shareErr.message.includes('canceled')) {
+                return
+              }
+              showToast('已保存到应用目录 (分享已取消)')
+            }
+          }
         } else {
           // 浏览器: 使用 Blob 下载
           var blob = new Blob([jsonStr], { type: 'application/json' })
@@ -1819,7 +1836,6 @@
         }
       } catch (e) {
         if (e.message && e.message.includes('canceled')) {
-          // 用户取消，不显示错误
           return
         }
         showToast('导出失败: ' + (e.message || '未知错误'))
@@ -2006,7 +2022,7 @@
     document.getElementById('export-config-btn').addEventListener('click', exportConfig)
     document.getElementById('import-config-btn').addEventListener('click', selectConfigFile)
     document.getElementById('reindex-btn').addEventListener('click', async function() {
-      showToast('正在重新生成索引...')
+      showToast('正在重新生成索引 (不会影响权重/标签/使用记录)...')
       await regenerateIndex()
       renderGrid()
       refreshAll()

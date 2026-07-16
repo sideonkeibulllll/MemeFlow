@@ -12,6 +12,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.ArrayList;
 
 public class MainActivity extends BridgeActivity {
     private static final String TAG = "MemeFlow";
@@ -36,6 +37,9 @@ public class MainActivity extends BridgeActivity {
 
         // 首次启动初始化: 将 APK assets 中的图片复制到 Data/meme/
         copyAssetsToData();
+
+        // 处理通过分享启动时的 intent
+        handleShareIntent(getIntent());
     }
 
     /**
@@ -174,36 +178,38 @@ public class MainActivity extends BridgeActivity {
         String action = intent.getAction();
         String type = intent.getType();
 
-        if (!Intent.ACTION_SEND.equals(action) || type == null) {
+        if (type == null || !type.startsWith("image/")) {
             return;
         }
 
+        // 保存图片到 Data/meme/分享/ 目录
+        File shareDir = new File(getFilesDir(), MEME_DIR + File.separator + SHARE_DIR);
+        if (!shareDir.exists()) {
+            shareDir.mkdirs();
+        }
+
+        int count = 0;
+
         try {
-            Uri imageUri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
-            if (imageUri == null) return;
-
-            // 保存图片到 Data/meme/分享/ 目录
-            File memeDir = new File(getFilesDir(), MEME_DIR + File.separator + SHARE_DIR);
-            if (!memeDir.exists()) {
-                memeDir.mkdirs();
+            if (Intent.ACTION_SEND.equals(action)) {
+                Uri imageUri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+                if (imageUri != null) {
+                    if (saveImageFromUri(imageUri, shareDir)) count++;
+                }
+            } else if (Intent.ACTION_SEND_MULTIPLE.equals(action)) {
+                ArrayList<Uri> imageUris = intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM);
+                if (imageUris != null) {
+                    for (Uri uri : imageUris) {
+                        if (saveImageFromUri(uri, shareDir)) count++;
+                    }
+                }
             }
+        } catch (Exception e) {
+            Log.e(TAG, "保存分享图片失败: " + e.getMessage());
+        }
 
-            String fileName = "share_" + System.currentTimeMillis() + "_" + getFileNameFromUri(imageUri);
-            File destFile = new File(memeDir, fileName);
-
-            InputStream is = getContentResolver().openInputStream(imageUri);
-            if (is == null) return;
-
-            OutputStream os = new FileOutputStream(destFile);
-            byte[] buffer = new byte[8192];
-            int len;
-            while ((len = is.read(buffer)) > 0) {
-                os.write(buffer, 0, len);
-            }
-            os.close();
-            is.close();
-
-            Log.d(TAG, "图片已保存: " + destFile.getAbsolutePath());
+        if (count > 0) {
+            Log.d(TAG, "成功保存 " + count + " 张分享图片");
 
             // 通知前端刷新
             final String js = "if(typeof onShareReceived === 'function') { onShareReceived('" + SHARE_DIR + "'); }";
@@ -215,8 +221,40 @@ public class MainActivity extends BridgeActivity {
                     }
                 }
             });
+        }
+    }
+
+    private boolean saveImageFromUri(Uri imageUri, File destDir) {
+        try {
+            if (imageUri == null) return false;
+
+            String fileName = "share_" + System.currentTimeMillis() + "_" + getFileNameFromUri(imageUri);
+            File destFile = new File(destDir, fileName);
+
+            // 避免重名
+            int dup = 1;
+            while (destFile.exists()) {
+                String base = fileName.substring(0, fileName.lastIndexOf('.'));
+                String ext = fileName.substring(fileName.lastIndexOf('.'));
+                destFile = new File(destDir, base + "_" + (dup++) + ext);
+            }
+
+            InputStream is = getContentResolver().openInputStream(imageUri);
+            if (is == null) return false;
+
+            OutputStream os = new FileOutputStream(destFile);
+            byte[] buffer = new byte[8192];
+            int len;
+            while ((len = is.read(buffer)) > 0) {
+                os.write(buffer, 0, len);
+            }
+            os.close();
+            is.close();
+
+            return true;
         } catch (Exception e) {
-            Log.e(TAG, "保存分享图片失败: " + e.getMessage());
+            Log.e(TAG, "保存单张图片失败: " + e.getMessage());
+            return false;
         }
     }
 
