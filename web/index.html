@@ -706,6 +706,11 @@
 
     var memeStarred = {}
 
+    // 图片 base64 缓存，加快刷新速度
+    var imageCache = {}
+    var imageCacheSize = 0
+    var IMAGE_CACHE_MAX = 200
+
     var isAndroid = typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()
     var Share = isAndroid ? Capacitor.Plugins.Share : null
     var Filesystem = isAndroid ? Capacitor.Plugins.Filesystem : null
@@ -1232,6 +1237,34 @@
       return true
     }
 
+    // 读取单张图片 base64，带内存缓存
+    async function loadImageBase64(memeName) {
+      // 命中缓存直接返回
+      if (imageCache[memeName]) {
+        return imageCache[memeName]
+      }
+      try {
+        var fileResult = await Filesystem.readFile({
+          path: 'meme/' + memeName,
+          directory: 'Data'
+        })
+        var ext = memeName.split('.').pop().toLowerCase()
+        var dataUrl = 'data:image/' + ext + ';base64,' + fileResult.data
+
+        // 存入缓存（LRU 近似：超出上限则清空重建）
+        if (imageCacheSize >= IMAGE_CACHE_MAX) {
+          imageCache = {}
+          imageCacheSize = 0
+        }
+        imageCache[memeName] = dataUrl
+        imageCacheSize++
+
+        return dataUrl
+      } catch (e) {
+        return null
+      }
+    }
+
     async function refreshAll() {
       // 如果在历史中间，前进到下一页历史
       if (currentHistoryIndex < pageHistory.length - 1) {
@@ -1249,12 +1282,9 @@
         sortPageOffset++
       }
 
+      // 第一步：并行确定所有 memeName（不涉及文件IO，纯计算）
+      var memeNames = []
       for (var i = 0; i < total; i++) {
-        var img = items[i].querySelector('img')
-        var weightLabel = items[i].querySelector('.meme-weight')
-        var tagLabel = items[i].querySelector('.meme-tag')
-        img.style.opacity = '0.5'
-
         var memeName = null
         if (sortedMemes) {
           memeName = sortedMemes[i] || null
@@ -1263,34 +1293,65 @@
           memeName = getRandomMeme(useWeight)
         }
         currentMemes[i] = memeName
+        memeNames.push(memeName)
+      }
 
-        if (!memeName) {
-          img.src = ''
-          img.style.opacity = '1'
-          weightLabel.textContent = '-'
-          tagLabel.textContent = ''
-          continue
-        }
+      // 第二步：并行读取所有图片（Android 用 Filesystem，其他用 HTTP）
+      if (isAndroid && Filesystem) {
+        // 并行读取所有图片 base64
+        var promises = memeNames.map(function(memeName) {
+          return memeName ? loadImageBase64(memeName) : Promise.resolve(null)
+        })
+        var results = await Promise.all(promises)
 
-        weightLabel.textContent = weights[memeName] || 1
-        var tag = memeTags[memeName]
-        tagLabel.textContent = tag ? (tag.text || '') : ''
+        for (var i = 0; i < total; i++) {
+          var img = items[i].querySelector('img')
+          var weightLabel = items[i].querySelector('.meme-weight')
+          var tagLabel = items[i].querySelector('.meme-tag')
 
-        // 加载图片: Android 使用 Filesystem 读取 base64, 其他平台使用相对路径
-        if (isAndroid && Filesystem) {
-          try {
-            var fileResult = await Filesystem.readFile({
-              path: 'meme/' + memeName,
-              directory: 'Data'
-            })
-            var ext = memeName.split('.').pop().toLowerCase()
-            img.src = 'data:image/' + ext + ';base64,' + fileResult.data
+          var memeName = memeNames[i]
+          if (!memeName) {
+            img.src = ''
+            img.style.opacity = '1'
+            weightLabel.textContent = '-'
+            tagLabel.textContent = ''
+            continue
+          }
+
+          weightLabel.textContent = weights[memeName] || 1
+          var tag = memeTags[memeName]
+          tagLabel.textContent = tag ? (tag.text || '') : ''
+
+          var dataUrl = results[i]
+          if (dataUrl) {
+            img.src = dataUrl
             img.onload = function() { this.style.opacity = '1' }
-          } catch (e) {
+          } else {
             img.src = ''
             img.style.opacity = '1'
           }
-        } else {
+        }
+      } else {
+        // 非 Android：直接设置 HTTP 路径
+        for (var i = 0; i < total; i++) {
+          var img = items[i].querySelector('img')
+          var weightLabel = items[i].querySelector('.meme-weight')
+          var tagLabel = items[i].querySelector('.meme-tag')
+          img.style.opacity = '0.5'
+
+          var memeName = memeNames[i]
+          if (!memeName) {
+            img.src = ''
+            img.style.opacity = '1'
+            weightLabel.textContent = '-'
+            tagLabel.textContent = ''
+            continue
+          }
+
+          weightLabel.textContent = weights[memeName] || 1
+          var tag = memeTags[memeName]
+          tagLabel.textContent = tag ? (tag.text || '') : ''
+
           img.src = 'meme/' + memeName + '?t=' + Date.now() + '-' + i
           img.onload = function() { this.style.opacity = '1' }
         }
@@ -1594,16 +1655,8 @@
       currentMemes[0] = memeName
       
       if (isAndroid && Filesystem) {
-        try {
-          var fileResult = await Filesystem.readFile({
-            path: 'meme/' + memeName,
-            directory: 'Data'
-          })
-          var ext = memeName.split('.').pop().toLowerCase()
-          img.src = 'data:image/' + ext + ';base64,' + fileResult.data
-        } catch (e) {
-          img.src = ''
-        }
+        var dataUrl = await loadImageBase64(memeName)
+        img.src = dataUrl || ''
       } else {
         img.src = 'meme/' + memeName + '?t=' + Date.now()
       }
@@ -1641,7 +1694,7 @@
     }
     
     async function importZip() {
-      // 提示输入文件夹名称
+      // 使用自定义 modal 输入文件夹名称，替代 prompt (Android WebView 中 prompt 后的 click 可能被阻止)
       var folderName = prompt('请输入导入到的文件夹名称:', '导入')
       if (!folderName || folderName.trim() === '') {
         showToast('已取消导入')
@@ -1652,6 +1705,7 @@
       // 使用现有的 input 元素
       var input = document.getElementById('zip-file-input')
 
+      // 先绑定事件，再触发 click，确保事件绑定完成
       input.onchange = async function(e) {
         var file = e.target.files[0]
         if (!file) {
@@ -1716,7 +1770,8 @@
         input.value = ''
       }
 
-      input.click()
+      // 延迟触发 click，确保 onchange 已绑定
+      setTimeout(function() { input.click() }, 100)
     }
     
     async function exportConfig() {
@@ -1987,6 +2042,15 @@
       })
     })
     
+    // 收到系统分享图片时的回调 (由 MainActivity.java 调用)
+    async function onShareReceived(folderName) {
+      showToast('已收到分享的图片，正在刷新...');
+      await regenerateIndex();
+      renderGrid();
+      refreshAll();
+      showToast('分享图片已导入到 [' + folderName + '] 文件夹');
+    }
+
     async function init() {
       loadWeights()
       loadTags()
