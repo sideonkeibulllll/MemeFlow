@@ -1,18 +1,28 @@
 package com.meme.random;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Bundle;
 import android.webkit.WebView;
 import android.webkit.ConsoleMessage;
 import android.util.Log;
+import android.widget.Toast;
+
+import androidx.core.content.FileProvider;
+import androidx.core.graphics.drawable.IconCompat;
+import androidx.core.content.pm.ShortcutInfoCompat;
+import androidx.core.content.pm.ShortcutManagerCompat;
+
 import com.getcapacitor.BridgeActivity;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.Collections;
 
 public class MainActivity extends BridgeActivity {
     private static final String TAG = "MemeFlow";
@@ -20,6 +30,8 @@ public class MainActivity extends BridgeActivity {
     private static final String DEFAULT_DIR = "默认";
     private static final String SHARE_DIR = "分享";
     private static final String ASSETS_PUBLIC = "public";
+    private static final String PREFS_NAME = "MemeFlowPrefs";
+    private static final String KEY_ASSETS_COPIED = "assets_copied";
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -35,10 +47,26 @@ public class MainActivity extends BridgeActivity {
             }
         });
 
-        // 首次启动初始化: 将 APK assets 中的图片复制到 Data/meme/
-        copyAssetsToData();
+        createShareShortcut();
 
-        // 处理通过分享启动时的 intent
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        boolean assetsCopied = prefs.getBoolean(KEY_ASSETS_COPIED, false);
+        File memeDir = new File(getFilesDir(), MEME_DIR);
+        File indexFile = new File(memeDir, "index.json");
+
+        if (!assetsCopied || !indexFile.exists()) {
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    copyAssetsToData();
+                    installLiteApkIfNeeded();
+                }
+            }).start();
+        } else {
+            Log.d(TAG, "已初始化, 跳过 assets 复制");
+            installLiteApkIfNeeded();
+        }
+
         handleShareIntent(getIntent());
     }
 
@@ -46,12 +74,30 @@ public class MainActivity extends BridgeActivity {
      * 首次启动时，将 APK assets/public/assets/ 下的图片复制到 getFilesDir()/meme/默认/
      * 并生成 index.json
      */
+    private void createShareShortcut() {
+        try {
+            ShortcutInfoCompat shortcutInfo = new ShortcutInfoCompat.Builder(this, "meme_share_shortcut")
+                    .setShortLabel("添加到Meme")
+                    .setLongLabel("添加图片到Meme库")
+                    .setIcon(IconCompat.createWithResource(this, android.R.drawable.ic_menu_add))
+                    .setCategories(Collections.singleton("com.meme.random.category.SHARE_TARGET"))
+                    .build();
+
+            ArrayList<ShortcutInfoCompat> shortcuts = new ArrayList<>();
+            shortcuts.add(shortcutInfo);
+            ShortcutManagerCompat.setDynamicShortcuts(this, shortcuts);
+
+            Log.d(TAG, "已创建分享快捷方式");
+        } catch (Exception e) {
+            Log.e(TAG, "创建分享快捷方式失败: " + e.getMessage());
+        }
+    }
     private void copyAssetsToData() {
         File memeDir = new File(getFilesDir(), MEME_DIR);
         File indexFile = new File(memeDir, "index.json");
 
-        // 如果 index.json 已存在, 说明已经初始化过, 跳过
-        if (indexFile.exists()) {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        if (prefs.getBoolean(KEY_ASSETS_COPIED, false) && indexFile.exists()) {
             Log.d(TAG, "已初始化, 跳过 assets 复制");
             return;
         }
@@ -59,21 +105,18 @@ public class MainActivity extends BridgeActivity {
         Log.d(TAG, "首次启动: 开始从 APK assets 复制图片...");
 
         try {
-            // 获取 memes.json 中的文件列表 (由 build-web.js 生成)
             String memesJsonStr = readAssetFile(ASSETS_PUBLIC + "/assets/memes.json");
             if (memesJsonStr == null) {
                 Log.e(TAG, "无法读取 assets/public/assets/memes.json");
                 return;
             }
 
-            // 解析 JSON 字符串: ["file1.jpg", "file2.png", ...]
             String[] imageFiles = parseJsonStringArray(memesJsonStr);
             if (imageFiles == null || imageFiles.length == 0) {
                 Log.e(TAG, "memes.json 中没有图片文件");
                 return;
             }
 
-            // 创建目标目录
             File defaultDir = new File(memeDir, DEFAULT_DIR);
             if (!defaultDir.exists()) {
                 defaultDir.mkdirs();
@@ -89,11 +132,17 @@ public class MainActivity extends BridgeActivity {
 
                 String assetPath = ASSETS_PUBLIC + "/assets/" + fileName;
                 try {
-                    // 从 APK assets 读取图片
                     InputStream is = getAssets().open(assetPath);
                     File destFile = new File(defaultDir, fileName);
 
-                    // 写入 Data/meme/默认/
+                    if (destFile.exists()) {
+                        if (count > 0) indexJson.append(",");
+                        indexJson.append("\"").append(fileName).append("\"");
+                        count++;
+                        is.close();
+                        continue;
+                    }
+
                     OutputStream os = new FileOutputStream(destFile);
                     byte[] buffer = new byte[8192];
                     int len;
@@ -107,22 +156,85 @@ public class MainActivity extends BridgeActivity {
                     indexJson.append("\"").append(fileName).append("\"");
                     count++;
                 } catch (Exception e) {
-                    // 跳过读取失败的图片
                     Log.w(TAG, "跳过图片: " + fileName + " (" + e.getMessage() + ")");
                 }
             }
 
             indexJson.append("]}");
 
-            // 写入 index.json
             FileOutputStream fos = new FileOutputStream(indexFile);
             fos.write(indexJson.toString().getBytes("UTF-8"));
             fos.close();
+
+            prefs.edit().putBoolean(KEY_ASSETS_COPIED, true).apply();
 
             Log.d(TAG, "初始化完成: 已复制 " + count + "/" + imageFiles.length + " 张表情包");
 
         } catch (Exception e) {
             Log.e(TAG, "初始化失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 如果当前 APK 中内嵌了 Lite APK, 则提取并安装（覆盖升级）
+     * 每次进入都会触发安装提示, 直到用户完成安装（Lite 版本覆盖 Full 版本）
+     */
+    private void installLiteApkIfNeeded() {
+        // 检查 assets/lite/app-lite.apk 是否存在
+        // Full 版本有内嵌, Lite 版本没有
+        try {
+            getAssets().open("lite/app-lite.apk").close();
+        } catch (IOException e) {
+            Log.d(TAG, "未检测到 Lite APK (当前已是 Lite 版本或无内嵌), 跳过");
+            return;
+        }
+
+        Log.d(TAG, "检测到 Lite APK, 准备安装升级版本...");
+
+        try {
+            // 提取 Lite APK 到缓存目录
+            File liteDir = new File(getCacheDir(), "lite");
+            liteDir.mkdirs();
+            File liteApkFile = new File(liteDir, "app-lite.apk");
+
+            InputStream is = getAssets().open("lite/app-lite.apk");
+            OutputStream os = new FileOutputStream(liteApkFile);
+            byte[] buffer = new byte[8192];
+            int len;
+            while ((len = is.read(buffer)) > 0) {
+                os.write(buffer, 0, len);
+            }
+            os.close();
+            is.close();
+
+            Log.d(TAG, "Lite APK 已提取到: " + liteApkFile.getAbsolutePath());
+
+            // 在主线程弹出安装界面
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        Uri apkUri = FileProvider.getUriForFile(
+                            MainActivity.this,
+                            getPackageName() + ".fileprovider",
+                            liteApkFile
+                        );
+
+                        Intent intent = new Intent(Intent.ACTION_VIEW);
+                        intent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+                        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                        startActivity(intent);
+
+                        Log.d(TAG, "已启动 Lite APK 安装界面");
+                    } catch (Exception e) {
+                        Log.e(TAG, "启动安装界面失败: " + e.getMessage());
+                    }
+                }
+            });
+
+        } catch (Exception e) {
+            Log.e(TAG, "提取 Lite APK 失败: " + e.getMessage());
         }
     }
 

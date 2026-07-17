@@ -1,6 +1,6 @@
 {
   "name": "memeflow",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Your personal meme launcher. One click, instant reaction.",
   "main": "main.js",
   "scripts": {
@@ -8,7 +8,9 @@
     "build:win": "electron-builder --win --x64",
     "prepare:web": "node build-web.js",
     "sync:android": "npm run prepare:web && npx cap sync android",
-    "build:android": "npm run sync:android"
+    "build:android": "npm run sync:android",
+    "build:lite": "node build-lite.js",
+    "build:all": "npm run sync:android && node build-lite.js && cd android && .\\gradlew.bat assembleDebug"
   },
   "keywords": [
     "meme",

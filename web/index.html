@@ -711,6 +711,14 @@
     var imageCacheSize = 0
     var IMAGE_CACHE_MAX = 200
 
+    // 预加载系统
+    var preloadQueue = []
+    var preloadPageSize = 20
+    var preloadRefillThreshold = 10
+    var preloadRefillCount = 10
+    var isPreloading = false
+    var refreshCount = 0
+
     var isAndroid = typeof Capacitor !== 'undefined' && Capacitor.isNativePlatform()
     var Share = isAndroid ? Capacitor.Plugins.Share : null
     var Filesystem = isAndroid ? Capacitor.Plugins.Filesystem : null
@@ -823,7 +831,6 @@
         return
       }
       try {
-        // 确保 meme 目录存在
         try {
           await Filesystem.mkdir({ path: 'meme', directory: 'Data', recursive: true })
         } catch (e) {}
@@ -842,7 +849,6 @@
           } catch (e) { continue }
 
           if (stat.type === 'directory') {
-            // 子文件夹: 读取其中的图片
             var folderResult
             try {
               folderResult = await Filesystem.readdir({ path: entryPath, directory: 'Data' })
@@ -861,7 +867,6 @@
               indexData[entry.name] = folderFiles
             }
           } else if (stat.type === 'file') {
-            // 根目录的文件: 归入 "默认" 文件夹
             var ext = entry.name.split('.').pop().toLowerCase()
             if (['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(ext) >= 0) {
               if (!indexData['默认']) indexData['默认'] = []
@@ -871,13 +876,14 @@
           }
         }
 
-        // 保存索引文件
         await Filesystem.writeFile({
           path: 'meme/index.json',
           data: JSON.stringify(indexData),
           directory: 'Data',
           recursive: true
         })
+
+        preloadQueue = []
       } catch (e) {
         memes = []
       }
@@ -886,7 +892,6 @@
     async function loadMemes() {
       if (isAndroid && Filesystem) {
         try {
-          // 尝试读取 meme/index.json
           var indexResult = await Filesystem.readFile({
             path: 'meme/index.json',
             directory: 'Data'
@@ -899,13 +904,11 @@
               memes.push(folder + '/' + files[i])
             }
           }
-          if (memes.length > 0) return
+          return
         } catch (e) {}
-        // 索引不存在或为空, 重新生成
         await regenerateIndex()
         return
       }
-      // 非 Android 环境兜底
       try {
         var response = await fetch('assets/memes.json')
         var flatMemes = await response.json()
@@ -1265,6 +1268,63 @@
       }
     }
 
+    // 生成一页随机 meme 名称列表（不加载图片）
+    function generateRandomPage(count) {
+      var page = []
+      var hasPureRandom = count > 3 && !currentFilter
+      for (var i = 0; i < count; i++) {
+        var useWeight = !(hasPureRandom && i === 0)
+        page.push(getRandomMeme(useWeight))
+      }
+      return page
+    }
+
+    // 预加载指定数量的页面到队列中
+    async function preloadPages(pageCount) {
+      if (isPreloading || memes.length === 0) return
+      isPreloading = true
+
+      try {
+        var gridSize = gridConfig.rows * gridConfig.cols
+
+        for (var p = 0; p < pageCount; p++) {
+          var memeNames = generateRandomPage(gridSize)
+          var pageData = []
+
+          for (var i = 0; i < memeNames.length; i++) {
+            var memeName = memeNames[i]
+            var dataUrl = null
+            if (memeName && isAndroid && Filesystem) {
+              dataUrl = await loadImageBase64(memeName)
+            }
+            pageData.push({ name: memeName, dataUrl: dataUrl })
+          }
+
+          preloadQueue.push(pageData)
+        }
+      } catch (e) {
+        console.error('预加载失败:', e)
+      }
+
+      isPreloading = false
+    }
+
+    // 检查预加载队列，按需补充
+    function checkAndRefillPreload() {
+      if (isPreloading) return
+      if (preloadQueue.length <= preloadRefillThreshold) {
+        preloadPages(preloadRefillCount)
+      }
+    }
+
+    // 从预加载队列中取出一页
+    function takePreloadPage() {
+      if (preloadQueue.length > 0) {
+        return preloadQueue.shift()
+      }
+      return null
+    }
+
     async function refreshAll() {
       // 如果在历史中间，前进到下一页历史
       if (currentHistoryIndex < pageHistory.length - 1) {
@@ -1282,7 +1342,64 @@
         sortPageOffset++
       }
 
-      // 第一步：并行确定所有 memeName（不涉及文件IO，纯计算）
+      var isRandomMode = !sortedMemes
+      var preloadPage = null
+
+      if (isRandomMode && isAndroid) {
+        preloadPage = takePreloadPage()
+      }
+
+      if (preloadPage) {
+        for (var i = 0; i < total; i++) {
+          var img = items[i].querySelector('img')
+          var weightLabel = items[i].querySelector('.meme-weight')
+          var tagLabel = items[i].querySelector('.meme-tag')
+
+          var itemData = preloadPage[i] || { name: null, dataUrl: null }
+          var memeName = itemData.name
+
+          currentMemes[i] = memeName
+
+          if (!memeName) {
+            img.src = ''
+            img.style.opacity = '1'
+            weightLabel.textContent = '-'
+            tagLabel.textContent = ''
+            continue
+          }
+
+          weightLabel.textContent = weights[memeName] || 1
+          var tag = memeTags[memeName]
+          tagLabel.textContent = tag ? (tag.text || '') : ''
+
+          if (itemData.dataUrl) {
+            img.src = itemData.dataUrl
+            img.style.opacity = '1'
+          } else {
+            img.style.opacity = '0.5'
+            ;(function(idx, name) {
+              loadImageBase64(name).then(function(url) {
+                var im = items[idx].querySelector('img')
+                if (url) {
+                  im.src = url
+                }
+                im.style.opacity = '1'
+              })
+            })(i, memeName)
+          }
+        }
+
+        refreshCount++
+        saveCurrentPageToHistory()
+        updateRefreshButtonText()
+
+        setTimeout(function() {
+          checkAndRefillPreload()
+        }, 100)
+
+        return
+      }
+
       var memeNames = []
       for (var i = 0; i < total; i++) {
         var memeName = null
@@ -1296,9 +1413,7 @@
         memeNames.push(memeName)
       }
 
-      // 第二步：并行读取所有图片（Android 用 Filesystem，其他用 HTTP）
       if (isAndroid && Filesystem) {
-        // 并行读取所有图片 base64
         var promises = memeNames.map(function(memeName) {
           return memeName ? loadImageBase64(memeName) : Promise.resolve(null)
         })
@@ -1332,7 +1447,6 @@
           }
         }
       } else {
-        // 非 Android：直接设置 HTTP 路径
         for (var i = 0; i < total; i++) {
           var img = items[i].querySelector('img')
           var weightLabel = items[i].querySelector('.meme-weight')
@@ -1357,10 +1471,15 @@
         }
       }
 
-      // 将新页面保存到历史记录
+      refreshCount++
       saveCurrentPageToHistory()
-
       updateRefreshButtonText()
+
+      if (isRandomMode && isAndroid) {
+        setTimeout(function() {
+          checkAndRefillPreload()
+        }, 100)
+      }
     }
     
     function showToast(message) {
@@ -1463,8 +1582,17 @@
       
       gridConfig = newConfig
       saveGridConfig()
+      
+      preloadQueue = []
+      
       renderGrid()
       refreshAll()
+      
+      if (isAndroid && memes.length > 0) {
+        setTimeout(function() {
+          preloadPages(preloadPageSize)
+        }, 500)
+      }
       
       closeSettings()
     }
@@ -1694,10 +1822,8 @@
     }
     
     async function importZip() {
-      // 直接选文件，不再弹 prompt 问文件夹名
       var input = document.getElementById('zip-file-input')
 
-      // 根据导入时间创建文件夹名，避免重名覆盖
       var now = new Date()
       var folderName = '导入' + now.getFullYear() + '-' + pad2(now.getMonth()+1) + '-' + pad2(now.getDate()) + '-' + pad2(now.getHours()) + '-' + pad2(now.getMinutes())
 
@@ -1711,7 +1837,6 @@
         showToast('正在读取 ZIP 文件...')
 
         try {
-          // 读取文件内容
           var arrayBuffer = await file.arrayBuffer()
           var zip = await JSZip.loadAsync(arrayBuffer)
           var count = 0
@@ -1753,22 +1878,28 @@
             showToast('成功导入 ' + count + ' 张表情包, 正在重新生成索引...')
             await regenerateIndex()
             refreshAll()
-            showToast('成功导入 ' + count + ' 张表情包到 [' + folderName + ']')
+
+            setTimeout(function() {
+              if (isAndroid && memes.length > 0) {
+                preloadPages(preloadPageSize)
+              }
+            }, 500)
+
+            showToast('导入完成!')
           } else {
-            showToast('ZIP 中没有找到有效的图片文件')
+            showToast('未找到可导入的图片')
           }
-        } catch (e) {
-          console.error('导入 ZIP 失败:', e)
-          showToast('导入失败: ' + (e.message || '请检查 ZIP 文件格式'))
+        } catch (err) {
+          console.error('导入失败:', err)
+          showToast('导入失败: ' + err.message)
         }
 
         input.value = ''
       }
 
-      // 延迟触发 click
-      setTimeout(function() { input.click() }, 100)
+      input.click()
     }
-    
+
     async function exportConfig() {
       try {
         var configData = {
@@ -2076,6 +2207,13 @@
       await loadMemes()
       renderGrid()
       refreshAll()
+
+      if (isAndroid && memes.length > 0) {
+        setTimeout(function() {
+          preloadPages(preloadPageSize)
+        }, 500)
+      }
+
       setTimeout(function() {
         document.getElementById('debug-panel').style.display = 'none'
       }, 1000)
