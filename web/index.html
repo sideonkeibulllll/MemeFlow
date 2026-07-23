@@ -1161,24 +1161,15 @@
       }
     }
 
-    // 返回上一页
-    function goBackPage() {
-      if (currentHistoryIndex <= 0) {
-        showToast('已经是第一页了')
-        return false
-      }
-
-      currentHistoryIndex--
-      var prevPage = pageHistory[currentHistoryIndex]
-
-      // 恢复页面
+    // 恢复历史页面的通用函数: Android 走 base64 缓存, 浏览器走相对路径
+    function restoreHistoryPage(page) {
       var items = document.querySelectorAll('.meme-item')
-      for (var i = 0; i < items.length && i < prevPage.length; i++) {
+      for (var i = 0; i < items.length && i < page.length; i++) {
         var img = items[i].querySelector('img')
         var weightLabel = items[i].querySelector('.meme-weight')
         var tagLabel = items[i].querySelector('.meme-tag')
 
-        var memeName = prevPage[i]
+        var memeName = page[i]
         currentMemes[i] = memeName
 
         if (!memeName) {
@@ -1188,13 +1179,44 @@
           continue
         }
 
-        // 返回历史页面时不加时间戳，避免重新加载图片
-        img.src = 'meme/' + memeName
         weightLabel.textContent = weights[memeName] || 1
-        
         var tag = memeTags[memeName]
         tagLabel.textContent = tag ? (tag.text || '') : ''
+
+        if (isAndroid && Filesystem) {
+          // Android WebView 无法直接访问 Data/meme/ 相对路径, 必须用 base64
+          // 命中缓存时同步返回, 否则异步加载
+          var cached = imageCache[memeName]
+          if (cached) {
+            img.src = cached
+          } else {
+            img.src = ''
+            ;(function(idx, name) {
+              loadImageBase64(name).then(function(url) {
+                // 确保仍是当前页面索引, 避免快速切换导致错位
+                if (currentMemes[idx] === name) {
+                  items[idx].querySelector('img').src = url || ''
+                }
+              })
+            })(i, memeName)
+          }
+        } else {
+          // 浏览器环境: 使用相对路径, 不加时间戳以利用浏览器缓存
+          img.src = 'meme/' + memeName
+        }
       }
+    }
+
+    // 返回上一页
+    function goBackPage() {
+      if (currentHistoryIndex <= 0) {
+        showToast('已经是第一页了')
+        return false
+      }
+
+      currentHistoryIndex--
+      var prevPage = pageHistory[currentHistoryIndex]
+      restoreHistoryPage(prevPage)
 
       updateRefreshButtonText()
       showToast('已返回上一页 (' + (currentHistoryIndex + 1) + '/' + pageHistory.length + ')')
@@ -1210,30 +1232,7 @@
 
       currentHistoryIndex++
       var nextPage = pageHistory[currentHistoryIndex]
-
-      // 恢复页面
-      var items = document.querySelectorAll('.meme-item')
-      for (var i = 0; i < items.length && i < nextPage.length; i++) {
-        var img = items[i].querySelector('img')
-        var weightLabel = items[i].querySelector('.meme-weight')
-        var tagLabel = items[i].querySelector('.meme-tag')
-
-        var memeName = nextPage[i]
-        currentMemes[i] = memeName
-
-        if (!memeName) {
-          img.src = ''
-          weightLabel.textContent = '-'
-          tagLabel.textContent = ''
-          continue
-        }
-
-        img.src = 'meme/' + memeName
-        weightLabel.textContent = weights[memeName] || 1
-        
-        var tag = memeTags[memeName]
-        tagLabel.textContent = tag ? (tag.text || '') : ''
-      }
+      restoreHistoryPage(nextPage)
 
       updateRefreshButtonText()
       showToast('继续浏览 (' + (currentHistoryIndex + 1) + '/' + pageHistory.length + ')')
