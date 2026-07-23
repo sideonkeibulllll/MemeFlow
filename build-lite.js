@@ -33,6 +33,20 @@ function restore() {
     log('已恢复 ' + imageFiles.length + ' 张图片')
   }
 
+  // 恢复 app-lite.apk (在步骤 1.5 移走的)
+  const liteApkBak = path.join(TEMP_DIR, 'app-lite.apk.bak')
+  if (fs.existsSync(liteApkBak)) {
+    // 如果新 Lite APK 已复制到目标位置, 则删除备份 (避免覆盖新版本)
+    // 否则恢复旧版本
+    if (!fs.existsSync(LITE_APK_DST)) {
+      fs.renameSync(liteApkBak, LITE_APK_DST)
+      log('已恢复旧 app-lite.apk')
+    } else {
+      fs.unlinkSync(liteApkBak)
+      log('已使用新 app-lite.apk, 删除旧备份')
+    }
+  }
+
   // 恢复 build.gradle
   const bakFile = path.join(TEMP_DIR, 'build.gradle.bak')
   if (fs.existsSync(bakFile)) {
@@ -75,6 +89,16 @@ for (const f of imageFiles) {
   movedCount++
 }
 log('已备份 ' + movedCount + ' 张图片')
+
+// 步骤 1.5: 临时移走旧的 app-lite.apk, 避免 Lite APK 套娃自己
+// (构建 Full APK 时才需要嵌入 Lite APK; 构建 Lite APK 时不应包含它)
+let movedLiteApk = false
+if (fs.existsSync(LITE_APK_DST)) {
+  const liteApkBak = path.join(TEMP_DIR, 'app-lite.apk.bak')
+  fs.renameSync(LITE_APK_DST, liteApkBak)
+  movedLiteApk = true
+  log('已临时移走旧的 app-lite.apk (防止套娃)')
+}
 
 // 步骤 2: 备份并修改 build.gradle (versionCode)
 log('步骤 2: 设置 versionCode...')
