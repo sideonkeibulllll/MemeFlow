@@ -35,14 +35,14 @@ import java.util.Iterator;
 public class MainActivity extends BridgeActivity {
     private static final String TAG = "MemeFlow";
     private static final String MEME_DIR = "meme";
-    private static final String DEFAULT_DIR = "默认";
-    private static final String SHARE_DIR = "分享";
+    private static final String DEFAULT_DIR = "default";
+    private static final String SHARE_DIR = "share";
     private static final String ASSETS_PUBLIC = "public";
     private static final String PREFS_NAME = "MemeFlowPrefs";
     private static final String KEY_ASSETS_COPIED = "assets_copied";
-    // v2: 1.5.1 因为 readAssetFile 的 available() bug 可能写入了残缺的 hash，
-    // 换 key 名强制 1.5.2 重新同步一次
-    private static final String KEY_ASSETS_HASH = "assets_hash_v2";
+    // v3: 1.5.2 里 index.json 被前端的 writeFile 写成了 0 字节，换 key 强制重写
+    private static final String KEY_ASSETS_HASH = "assets_hash_v3";
+    private static final String KEY_LITE_PROMPTED = "lite_prompted_code";
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -114,6 +114,9 @@ public class MainActivity extends BridgeActivity {
         File indexFile = new File(memeDir, "index.json");
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
 
+        // 先把旧版的中文目录名迁成英文，避免路径编码问题
+        migrateFolderNames();
+
         try {
             String memesJsonStr = readAssetFile(ASSETS_PUBLIC + "/assets/memes.json");
             if (memesJsonStr == null) {
@@ -136,6 +139,16 @@ public class MainActivity extends BridgeActivity {
                 if (seen.add(f)) wanted.add(f);
             }
 
+            // Lite 版 APK 里只有清单没有图片，别去做 1350 次注定失败的 open
+            if (!wanted.isEmpty()) {
+                try {
+                    getAssets().open(ASSETS_PUBLIC + "/assets/" + wanted.get(0)).close();
+                } catch (Exception e) {
+                    Log.d(TAG, "assets 里没有图片 (Lite 版), 跳过同步");
+                    return;
+                }
+            }
+
             String hash = md5Hex(memesJsonStr + "#" + wanted.size());
             String lastHash = prefs.getString(KEY_ASSETS_HASH, "");
 
@@ -146,6 +159,23 @@ public class MainActivity extends BridgeActivity {
 
             if (!defaultDir.exists()) {
                 defaultDir.mkdirs();
+            }
+
+            // 清掉上一版留下、这一版不再出厂的图。
+            // 用户自己 ZIP 导入的在 import-XXXX 文件夹里，不在 defaultDir，一个都不会动。
+            int removed = 0;
+            HashSet<String> wantedSet = new HashSet<>(wanted);
+            File[] stale = defaultDir.listFiles();
+            if (stale != null) {
+                for (int i = 0; i < stale.length; i++) {
+                    File f = stale[i];
+                    if (f.isFile() && !wantedSet.contains(f.getName())) {
+                        if (f.delete()) removed++;
+                    }
+                }
+            }
+            if (removed > 0) {
+                Log.d(TAG, "清理旧出厂图: " + removed + " 张");
             }
 
             int copied = 0;
@@ -240,6 +270,37 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    /**
+     * 旧版目录名是中文（默认 / 分享 / 导入YYYY-MM-DD-HH-mm），路径编码上有隐患，
+     * 统一迁成英文。只改名，不动文件内容。
+     */
+    private void migrateFolderNames() {
+        File memeDir = new File(getFilesDir(), MEME_DIR);
+        if (!memeDir.exists()) return;
+
+        renameDir(new File(memeDir, "默认"), new File(memeDir, DEFAULT_DIR));
+        renameDir(new File(memeDir, "分享"), new File(memeDir, SHARE_DIR));
+
+        File[] children = memeDir.listFiles();
+        if (children == null) return;
+        for (int i = 0; i < children.length; i++) {
+            File d = children[i];
+            if (!d.isDirectory()) continue;
+            String name = d.getName();
+            if (!name.startsWith("导入")) continue;
+            renameDir(d, new File(memeDir, "import-" + name.substring(2)));
+        }
+    }
+
+    private void renameDir(File from, File to) {
+        if (!from.exists() || from.equals(to) || to.exists()) return;
+        if (from.renameTo(to)) {
+            Log.d(TAG, "目录迁移: " + from.getName() + " -> " + to.getName());
+        } else {
+            Log.w(TAG, "目录迁移失败: " + from.getName());
+        }
+    }
+
     private String getFileText(File f) throws Exception {
         java.io.FileInputStream fis = new java.io.FileInputStream(f);
         byte[] buf = new byte[(int) f.length()];
@@ -303,6 +364,7 @@ public class MainActivity extends BridgeActivity {
 
             // 校验版本：待装的 Lite 必须比当前已装的更高，否则弹出来也装不上
             // （系统会报「已安装更高版本」，用户只会困惑）
+            SharedPreferences litePrefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
             try {
                 PackageInfo liteInfo = getPackageManager()
                         .getPackageArchiveInfo(liteApkFile.getAbsolutePath(), 0);

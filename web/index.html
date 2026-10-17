@@ -1024,7 +1024,7 @@
           } else if (stat.type === 'file') {
             var ext = entry.name.split('.').pop().toLowerCase()
             if (['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(ext) < 0) continue
-            entries.push({ folder: '默认', name: entry.name, size: stat.size })
+            entries.push({ folder: 'default', name: entry.name, size: stat.size })
           }
         }
 
@@ -1044,6 +1044,7 @@
           path: 'meme/index.json',
           data: JSON.stringify(indexData),
           directory: 'Data',
+          encoding: 'utf8',
           recursive: true
         })
 
@@ -1059,6 +1060,23 @@
       }
     }
 
+    // Capacitor 的 readFile 默认返回 base64，不能直接丢给 JSON.parse。
+    // 传了 encoding:'utf8' 的版本会直接给明文，这里两种都兼容。
+    function decodeFsText(data) {
+      if (typeof data !== 'string') return ''
+      var s = data.replace(/^\uFEFF/, '')
+      var head = s.trim().charAt(0)
+      if (head === '{' || head === '[') return s
+      try {
+        var bin = atob(s.trim())
+        var bytes = new Uint8Array(bin.length)
+        for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+        return new TextDecoder('utf-8').decode(bytes)
+      } catch (e) {
+        return s
+      }
+    }
+    
     async function loadMemes() {
       if (isAndroid && Filesystem) {
         // 首次安装时 MainActivity 还在后台复制图，index.json 可能还没写出来。
@@ -1067,9 +1085,10 @@
           try {
             var indexResult = await Filesystem.readFile({
               path: 'meme/index.json',
-              directory: 'Data'
+              directory: 'Data',
+              encoding: 'utf8'
             })
-            var indexData = JSON.parse(indexResult.data)
+            var indexData = JSON.parse(decodeFsText(indexResult.data))
             var nextMemes = []
             var seenName = {}
             for (var folder in indexData) {
@@ -2067,7 +2086,7 @@
       var input = document.getElementById('zip-file-input')
 
       var now = new Date()
-      var folderName = '导入' + now.getFullYear() + '-' + pad2(now.getMonth()+1) + '-' + pad2(now.getDate()) + '-' + pad2(now.getHours()) + '-' + pad2(now.getMinutes())
+      var folderName = 'import-' + now.getFullYear() + '-' + pad2(now.getMonth()+1) + '-' + pad2(now.getDate()) + '-' + pad2(now.getHours()) + '-' + pad2(now.getMinutes())
 
       input.onchange = async function(e) {
         var file = e.target.files[0]

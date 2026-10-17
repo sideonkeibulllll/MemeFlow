@@ -1,6 +1,6 @@
 {
   "name": "memeflow",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "description": "Your personal meme launcher. One click, instant reaction.",
   "main": "main.js",
   "scripts": {
