@@ -104,9 +104,17 @@ if (fs.existsSync(LITE_APK_DST)) {
 log('步骤 2: 设置 versionCode...')
 const gradleContent = fs.readFileSync(BUILD_GRADLE, 'utf-8')
 fs.writeFileSync(path.join(TEMP_DIR, 'build.gradle.bak'), gradleContent)
-const newGradle = gradleContent.replace(/versionCode \d+/, 'versionCode 20000')
+
+// Lite 的 versionCode 必须比同版本 Full 高 1 —— 装完 Full 才能装 Lite 覆盖它。
+// 但**不能写死一个巨大的数**：历史版本写死 20000，导致 Full 10500 在手机上
+// 被判定为「降级安装」而失败（提示已安装更高版本）。
+// 规则：Lite = Full + 1。这样 Full 20500 → Lite 20501，下一版 Full 20600 又能盖回来。
+const vm = gradleContent.match(/versionCode\s+(\d+)/)
+const fullCode = vm ? parseInt(vm[1], 10) : 10000
+const liteCode = fullCode + 1
+const newGradle = gradleContent.replace(/versionCode \d+/, 'versionCode ' + liteCode)
 fs.writeFileSync(BUILD_GRADLE, newGradle)
-log('versionCode 已设置为 20000')
+log('versionCode: Full ' + fullCode + ' → Lite ' + liteCode)
 
 // 步骤 3: 构建 Lite APK
 log('步骤 3: 构建 Lite APK (gradlew assembleDebug)...')
