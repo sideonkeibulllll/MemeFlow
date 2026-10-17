@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>随机表情包</title>
+  <link rel="icon" href="data:,">
   <style>
     * {
       margin: 0;
@@ -547,6 +548,7 @@
       overflow-y: auto;
       word-break: break-all;
     }
+
   </style>
 </head>
 <body>
@@ -554,7 +556,7 @@
     <div id="debug-log">Loading...</div>
   </div>
   
-  <button class="mode-tag" id="mode-tag">tags</button>
+  <button class="mode-tag" id="mode-tag">全部</button>
   <button class="history-tag" id="history-tag">1/10</button>
 
   <div class="meme-grid" id="meme-grid"></div>
@@ -617,10 +619,11 @@
       <div class="modal-section">
         <label>分类</label>
         <div class="category-select" id="category-select">
-          <button class="category-btn" data-category="happy">快乐/滑稽</button>
-          <button class="category-btn" data-category="sad">悲伤/委屈</button>
-          <button class="category-btn" data-category="shock">震惊/愤怒</button>
-          <button class="category-btn" data-category="social">阴阳怪气/社交</button>
+          <button class="category-btn" data-category="P1">想主动热一下</button>
+          <button class="category-btn" data-category="P2">这个我好喜欢</button>
+          <button class="category-btn" data-category="P3">我快没电了</button>
+          <button class="category-btn" data-category="P4">到此为止</button>
+          <button class="category-btn" data-category="P5">想认真说点</button>
         </div>
       </div>
       <div class="modal-section">
@@ -658,10 +661,11 @@
         <div class="modal-section">
           <label>选择分类</label>
           <div class="category-filter-list">
-            <button class="category-filter-btn" data-category="happy">快乐/滑稽</button>
-            <button class="category-filter-btn" data-category="sad">悲伤/委屈</button>
-            <button class="category-filter-btn" data-category="shock">震惊/愤怒</button>
-            <button class="category-filter-btn" data-category="social">阴阳怪气/社交</button>
+            <button class="category-filter-btn" data-category="P1">想主动热一下</button>
+            <button class="category-filter-btn" data-category="P2">这个我好喜欢</button>
+            <button class="category-filter-btn" data-category="P3">我快没电了</button>
+            <button class="category-filter-btn" data-category="P4">到此为止</button>
+            <button class="category-filter-btn" data-category="P5">想认真说点</button>
           </div>
         </div>
         <div class="modal-section">
@@ -724,10 +728,11 @@
     var Filesystem = isAndroid ? Capacitor.Plugins.Filesystem : null
     
     var categoryNames = {
-      happy: '快乐/滑稽',
-      sad: '悲伤/委屈',
-      shock: '震惊/愤怒',
-      social: '阴阳怪气/社交'
+      P1: '想主动热一下',
+      P2: '这个我好喜欢',
+      P3: '我快没电了',
+      P4: '到此为止',
+      P5: '想认真说点'
     }
     
     function loadWeights() {
@@ -1202,7 +1207,7 @@
           }
         } else {
           // 浏览器环境: 使用相对路径, 不加时间戳以利用浏览器缓存
-          img.src = 'meme/' + memeName
+          img.src = resolveImgSrc(memeName)
         }
       }
     }
@@ -1268,12 +1273,23 @@
     }
 
     // 生成一页随机 meme 名称列表（不加载图片）
+    // 同屏去重: 池子够大时一屏内不出重复图
     function generateRandomPage(count) {
       var page = []
+      var seen = {}
       var hasPureRandom = count > 3 && !currentFilter
+
       for (var i = 0; i < count; i++) {
         var useWeight = !(hasPureRandom && i === 0)
-        page.push(getRandomMeme(useWeight))
+        var meme = getRandomMeme(useWeight)
+
+        var guard = 0
+        while (meme && seen[meme] && guard < 10) {
+          meme = getRandomMeme(useWeight)
+          guard++
+        }
+        if (meme) seen[meme] = true
+        page.push(meme)
       }
       return page
     }
@@ -1400,16 +1416,15 @@
       }
 
       var memeNames = []
-      for (var i = 0; i < total; i++) {
-        var memeName = null
-        if (sortedMemes) {
-          memeName = sortedMemes[i] || null
-        } else {
-          var useWeight = !(hasPureRandom && i === 0)
-          memeName = getRandomMeme(useWeight)
+      if (sortedMemes) {
+        for (var i = 0; i < total; i++) {
+          memeNames.push(sortedMemes[i] || null)
         }
-        currentMemes[i] = memeName
-        memeNames.push(memeName)
+      } else {
+        memeNames = generateRandomPage(total)
+      }
+      for (var i = 0; i < total; i++) {
+        currentMemes[i] = memeNames[i]
       }
 
       if (isAndroid && Filesystem) {
@@ -1465,7 +1480,7 @@
           var tag = memeTags[memeName]
           tagLabel.textContent = tag ? (tag.text || '') : ''
 
-          img.src = 'meme/' + memeName + '?t=' + Date.now() + '-' + i
+          img.src = resolveImgSrc(memeName) + '?t=' + Date.now() + '-' + i
           img.onload = function() { this.style.opacity = '1' }
         }
       }
@@ -1481,6 +1496,12 @@
       }
     }
     
+    // 图片路径解析: Android 走 base64 (Filesystem), 浏览器走 web 内 assets
+    function resolveImgSrc(name) {
+      var base = String(name).split('/').pop()
+      return 'assets/' + base
+    }
+
     function showToast(message) {
       var toast = document.getElementById('toast')
       toast.textContent = message
@@ -1651,7 +1672,14 @@
       var category = selectedCategory ? selectedCategory.dataset.category : null
       
       if (text || category) {
-        memeTags[memeName] = { text: text, category: category }
+        // 保留 AI 给的 tags，但标记来源为用户，之后 AI 重跑不会覆盖
+        var prev = memeTags[memeName]
+        memeTags[memeName] = {
+          text: text,
+          category: category,
+          tags: (prev && prev.tags) ? prev.tags : [],
+          src: 'user'
+        }
       } else {
         delete memeTags[memeName]
       }
@@ -1738,8 +1766,20 @@
         for (var i = 0; i < memes.length; i++) {
           var meme = memes[i]
           var tag = memeTags[meme] || null
-          
-          if (tag && tag.text && tag.text.toLowerCase().indexOf(query) >= 0) {
+          if (!tag) continue
+
+          var hitText = tag.text && tag.text.toLowerCase().indexOf(query) >= 0
+          var hitTags = false
+          if (tag.tags && tag.tags.length) {
+            for (var k = 0; k < tag.tags.length; k++) {
+              if (String(tag.tags[k]).toLowerCase().indexOf(query) >= 0) {
+                hitTags = true
+                break
+              }
+            }
+          }
+
+          if (hitText || hitTags) {
             results.push({ name: meme, tag: tag })
           }
         }
@@ -1755,7 +1795,7 @@
         var r = results[i]
         var starIcon = memeStarred[r.name] ? '★' : '☆'
         html += '<div class="search-result-item" data-meme="' + r.name + '">'
-        html += '<img src="meme/' + r.name + '?t=' + Date.now() + '">'
+        html += '<img src="' + resolveImgSrc(r.name) + '?t=' + Date.now() + '">'
         html += '<div class="search-result-info">'
         html += '<div class="search-result-name">' + starIcon + ' ' + r.name + '</div>'
         html += '<div class="search-result-tag">' + (r.tag && r.tag.text ? r.tag.text : '无标签') + '</div>'
@@ -1785,7 +1825,7 @@
         var dataUrl = await loadImageBase64(memeName)
         img.src = dataUrl || ''
       } else {
-        img.src = 'meme/' + memeName + '?t=' + Date.now()
+        img.src = resolveImgSrc(memeName) + '?t=' + Date.now()
       }
       
       weightLabel.textContent = weights[memeName] || 1
@@ -1794,11 +1834,31 @@
       tagLabel.textContent = tag ? (tag.text || '') : ''
     }
     
+    function getFilteredPoolSize(category) {
+      var n = 0
+      for (var i = 0; i < memes.length; i++) {
+        var t = memeTags[memes[i]]
+        if (t && t.category === category) n++
+      }
+      return n
+    }
+
     function selectCategory(category) {
+      var n = getFilteredPoolSize(category)
+      if (n === 0) {
+        showToast('这个状态还没有图，先切回全部')
+        return
+      }
+
       currentFilter = { type: 'category', value: category }
-      document.getElementById('mode-tag').textContent = categoryNames[category]
+      document.getElementById('mode-tag').textContent = (categoryNames[category] || category) + ' ×'
       document.getElementById('mode-tag').classList.add('show')
       closeSearch()
+
+      if (n < 6) {
+        showToast('这个状态只有 ' + n + ' 张')
+      }
+
       refreshAll()
     }
     
@@ -1815,7 +1875,7 @@
     function clearFilter() {
       currentFilter = null
       sortPageOffset = 0
-      document.getElementById('mode-tag').textContent = 'tags'
+      document.getElementById('mode-tag').textContent = '全部'
       document.getElementById('mode-tag').classList.remove('show')
       refreshAll()
     }
@@ -2188,6 +2248,109 @@
       })
     })
     
+    // ===== 人格分类（P1~P5，替代原四大情绪分类）=====
+    var PERSONAS = [
+      { id: 'P1', name: '限量热情者', self: '想主动热一下' },
+      { id: 'P2', name: '少年音点火者', self: '这个我好喜欢' },
+      { id: 'P3', name: '过载透明者', self: '我快没电了' },
+      { id: 'P4', name: '温柔锋刃', self: '到此为止' },
+      { id: 'P5', name: '浪漫纵火者', self: '想认真说点' }
+    ]
+
+    var personaIndex = null
+
+    async function loadPersonaData() {
+      personaIndex = null
+
+      try {
+        var res = await fetch('assets/persona.json')
+        if (res && res.ok) personaIndex = await res.json()
+      } catch (e) {}
+
+      if (isAndroid && Filesystem) {
+        try {
+          var fr = await Filesystem.readFile({ path: 'meme/persona.json', directory: 'Data' })
+          var txt = fr.data
+          if (typeof txt === 'string' && txt.indexOf('{') < 0) {
+            txt = decodeURIComponent(escape(atob(txt)))
+          }
+          if (txt) personaIndex = JSON.parse(txt)
+        } catch (e) {}
+      }
+
+      if (!personaIndex || !personaIndex.items) {
+        personaIndex = { fallback: true, items: {}, source: {} }
+      }
+      if (Object.keys(personaIndex.items).length === 0) {
+        personaIndex.fallback = true
+      }
+    }
+
+    // 三层匹配: 完整路径 -> basename -> 文件名里的 8 位 hash
+    // 兼容两种命名: 01_0d3ebf5a.jpg (Emoji 工作区) 与 0d3ebf5a86cf...jpg (assets 纯 md5)
+    function lookupPersona(name) {
+      if (!personaIndex || !personaIndex.items) return null
+      var items = personaIndex.items
+
+      if (items[name]) return items[name]
+
+      var base = String(name).split('/').pop()
+      if (items[base]) return items[base]
+
+      var m = base.match(/_([0-9a-f]{8})\./i) || base.match(/^([0-9a-f]{8})[0-9a-f]{24}\./i)
+      if (m && personaIndex.hash) {
+        var target = personaIndex.hash[m[1].toLowerCase()]
+        if (target && items[target]) return items[target]
+      }
+      return null
+    }
+
+    function isPersonaReady() {
+      return !!(personaIndex && personaIndex.items && !personaIndex.fallback &&
+        Object.keys(personaIndex.items).length > 0)
+    }
+
+    function catFromScores(p) {
+      if (!p) return null
+      var best = null
+      var max = -1
+      for (var k in p) {
+        if (p[k] > max) { max = p[k]; best = k }
+      }
+      return best
+    }
+
+    // 把出厂标注合并进标签库
+    // 规则: AI 可以覆盖 AI, 但永远不覆盖用户手改过的 (src === 'user')
+    function mergePersonaIntoTags() {
+      if (!isPersonaReady()) return 0
+
+      var added = 0
+      var updated = 0
+
+      for (var i = 0; i < memes.length; i++) {
+        var name = memes[i]
+        var cur = memeTags[name]
+
+        if (cur && cur.src === 'user') continue
+
+        var rec = lookupPersona(name)
+        if (!rec) continue
+
+        var cat = rec.c || catFromScores(rec.p)
+        var text = rec.d || ''
+        var tg = Array.isArray(rec.t) ? rec.t : []
+        if (!cat && !text && tg.length === 0) continue
+
+        memeTags[name] = { text: text, category: cat || null, tags: tg, src: 'ai' }
+        if (cur) updated++
+        else added++
+      }
+
+      if (added > 0 || updated > 0) saveTags()
+      return added
+    }
+
     // 收到系统分享图片时的回调 (由 MainActivity.java 调用)
     async function onShareReceived(folderName) {
       showToast('已收到分享的图片，正在刷新...');
@@ -2204,6 +2367,8 @@
       loadMemeUsage()
       loadStarred()
       await loadMemes()
+      await loadPersonaData()
+      mergePersonaIntoTags()
       renderGrid()
       refreshAll()
 

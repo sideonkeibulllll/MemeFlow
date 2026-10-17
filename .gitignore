@@ -33,6 +33,19 @@ desktop.ini
 *.log
 npm-debug.log*
 
+# Build staging (build-lite.js 的临时目录)
+/build/
+
+# WorkBuddy project memory & scratch
+.workbuddy/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Agent scratch scripts
+_label_*.py
+
 # Environment
 .env
 .env.local
@@ -41,6 +54,9 @@ npm-debug.log*
 # Test assets (large image collections)
 -qq-vv-awa/
 -qq-vv-awa.zip
+
+# Emoji workspace (partitioned sticker library, ~850MB, not for repo)
+Emoji/
 
 # Meme assets (user data, not for repo)
 assets/
