@@ -7,10 +7,10 @@ android {
         applicationId "com.meme.random"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // versionCode = 20000 + 版本号数字（v1.5.0 → 20500）
+        // versionCode = 20000 + 版本号数字（v1.5.0 → 20500，v1.5.1 → 20510）
         // 20000 这一段是分界线：历史 Lite 包曾写死 20000，低于它的 Full 会被判定为降级
-        versionCode 20500
-        versionName "1.5.0"
+        versionCode 20510
+        versionName "1.5.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

@@ -16,13 +16,19 @@ import androidx.core.content.pm.ShortcutManagerCompat;
 
 import com.getcapacitor.BridgeActivity;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
 
 public class MainActivity extends BridgeActivity {
     private static final String TAG = "MemeFlow";
@@ -32,6 +38,7 @@ public class MainActivity extends BridgeActivity {
     private static final String ASSETS_PUBLIC = "public";
     private static final String PREFS_NAME = "MemeFlowPrefs";
     private static final String KEY_ASSETS_COPIED = "assets_copied";
+    private static final String KEY_ASSETS_HASH = "assets_hash";
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -49,23 +56,15 @@ public class MainActivity extends BridgeActivity {
 
         createShareShortcut();
 
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        boolean assetsCopied = prefs.getBoolean(KEY_ASSETS_COPIED, false);
-        File memeDir = new File(getFilesDir(), MEME_DIR);
-        File indexFile = new File(memeDir, "index.json");
-
-        if (!assetsCopied || !indexFile.exists()) {
-            new Thread(new Runnable() {
-                @Override
-                public void run() {
-                    copyAssetsToData();
-                    installLiteApkIfNeeded();
-                }
-            }).start();
-        } else {
-            Log.d(TAG, "已初始化, 跳过 assets 复制");
-            installLiteApkIfNeeded();
-        }
+        // 每次启动都做一次清单同步（内部按 memes.json 指纹判断，没变就立刻返回）。
+        // 老逻辑是「首次复制后永远跳过」，导致换新版后新图进不来。
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                syncAssetsToData();
+                installLiteApkIfNeeded();
+            }
+        }).start();
 
         handleShareIntent(getIntent());
     }
@@ -92,17 +91,24 @@ public class MainActivity extends BridgeActivity {
             Log.e(TAG, "创建分享快捷方式失败: " + e.getMessage());
         }
     }
-    private void copyAssetsToData() {
+    /**
+     * 把 APK 里的出厂图同步到 getFilesDir()/meme/默认/
+     *
+     * 老逻辑是「首次复制一次，之后永远跳过」，导致两个问题：
+     *   1. 换新版后新图进不来 —— 用户必须先卸载重装，否则还是旧的一批
+     *   2. 旧版残留的文件永远留在目录里，一旦重建索引就被扫进池子，同一张图占多份
+     *
+     * 现在改成按出厂清单 memes.json 的指纹做增量同步：
+     *   - 指纹没变 → 立刻返回，零开销
+     *   - 指纹变了 → 只补齐缺的文件，不删任何东西
+     *     （用户自己 ZIP 导入的图在「导入YYYY-MM-DD-HH-mm」文件夹里，不碰）
+     *   - index.json 合并写入，保留自建文件夹的条目（老代码会把它整个丢掉）
+     */
+    private void syncAssetsToData() {
         File memeDir = new File(getFilesDir(), MEME_DIR);
+        File defaultDir = new File(memeDir, DEFAULT_DIR);
         File indexFile = new File(memeDir, "index.json");
-
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        if (prefs.getBoolean(KEY_ASSETS_COPIED, false) && indexFile.exists()) {
-            Log.d(TAG, "已初始化, 跳过 assets 复制");
-            return;
-        }
-
-        Log.d(TAG, "首次启动: 开始从 APK assets 复制图片...");
 
         try {
             String memesJsonStr = readAssetFile(ASSETS_PUBLIC + "/assets/memes.json");
@@ -117,61 +123,121 @@ public class MainActivity extends BridgeActivity {
                 return;
             }
 
-            File defaultDir = new File(memeDir, DEFAULT_DIR);
+            // 去重后的出厂清单，保持原顺序
+            ArrayList<String> wanted = new ArrayList<>();
+            HashSet<String> seen = new HashSet<>();
+            for (int i = 0; i < imageFiles.length; i++) {
+                String f = imageFiles[i];
+                if (f == null || f.trim().isEmpty()) continue;
+                if (seen.add(f)) wanted.add(f);
+            }
+
+            String hash = md5Hex(memesJsonStr + "#" + wanted.size());
+            String lastHash = prefs.getString(KEY_ASSETS_HASH, "");
+
+            if (hash.equals(lastHash) && indexFile.exists()) {
+                Log.d(TAG, "出厂清单未变, 跳过同步 (" + wanted.size() + " 张)");
+                return;
+            }
+
             if (!defaultDir.exists()) {
                 defaultDir.mkdirs();
             }
 
-            int count = 0;
-            StringBuilder indexJson = new StringBuilder();
-            indexJson.append("{\"").append(DEFAULT_DIR).append("\":[");
+            int copied = 0;
+            int existed = 0;
+            int failed = 0;
 
-            for (int i = 0; i < imageFiles.length; i++) {
-                String fileName = imageFiles[i];
-                if (fileName == null || fileName.trim().isEmpty()) continue;
-
-                String assetPath = ASSETS_PUBLIC + "/assets/" + fileName;
+            for (int i = 0; i < wanted.size(); i++) {
+                String fileName = wanted.get(i);
+                File dest = new File(defaultDir, fileName);
+                if (dest.exists()) {
+                    existed++;
+                    continue;
+                }
                 try {
-                    InputStream is = getAssets().open(assetPath);
-                    File destFile = new File(defaultDir, fileName);
-
-                    if (destFile.exists()) {
-                        if (count > 0) indexJson.append(",");
-                        indexJson.append("\"").append(fileName).append("\"");
-                        count++;
-                        is.close();
-                        continue;
-                    }
-
-                    OutputStream os = new FileOutputStream(destFile);
-                    byte[] buffer = new byte[8192];
+                    InputStream is = getAssets().open(ASSETS_PUBLIC + "/assets/" + fileName);
+                    OutputStream os = new FileOutputStream(dest);
+                    byte[] buffer = new byte[16384];
                     int len;
                     while ((len = is.read(buffer)) > 0) {
                         os.write(buffer, 0, len);
                     }
                     os.close();
                     is.close();
-
-                    if (count > 0) indexJson.append(",");
-                    indexJson.append("\"").append(fileName).append("\"");
-                    count++;
+                    copied++;
                 } catch (Exception e) {
+                    failed++;
                     Log.w(TAG, "跳过图片: " + fileName + " (" + e.getMessage() + ")");
                 }
             }
 
-            indexJson.append("]}");
+            // 合并 index：默认文件夹按出厂清单重建，其他文件夹原样保留
+            JSONObject root = new JSONObject();
+            if (indexFile.exists()) {
+                try {
+                    JSONObject oldRoot = new JSONObject(getFileText(indexFile));
+                    Iterator<String> keys = oldRoot.keys();
+                    while (keys.hasNext()) {
+                        String k = keys.next();
+                        if (!DEFAULT_DIR.equals(k)) {
+                            root.put(k, oldRoot.get(k));
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "旧 index.json 解析失败, 只写出厂部分");
+                }
+            }
+
+            JSONArray defaultArr = new JSONArray();
+            ArrayList<String> sorted = new ArrayList<>(wanted);
+            Collections.sort(sorted);
+            for (int i = 0; i < sorted.size(); i++) {
+                defaultArr.put(sorted.get(i));
+            }
+            root.put(DEFAULT_DIR, defaultArr);
 
             FileOutputStream fos = new FileOutputStream(indexFile);
-            fos.write(indexJson.toString().getBytes("UTF-8"));
+            fos.write(root.toString().getBytes("UTF-8"));
             fos.close();
 
-            prefs.edit().putBoolean(KEY_ASSETS_COPIED, true).apply();
+            prefs.edit()
+                    .putString(KEY_ASSETS_HASH, hash)
+                    .putBoolean(KEY_ASSETS_COPIED, true)
+                    .apply();
 
-            Log.d(TAG, "初始化完成: 已复制 " + count + "/" + imageFiles.length + " 张表情包");
+            Log.d(TAG, "同步完成: 新增 " + copied + ", 已存在 " + existed +
+                    ", 失败 " + failed + ", 清单 " + wanted.size());
 
         } catch (Exception e) {
-            Log.e(TAG, "初始化失败: " + e.getMessage());
+            Log.e(TAG, "同步失败: " + e.getMessage());
+        }
+    }
+
+    private String getFileText(File f) throws Exception {
+        java.io.FileInputStream fis = new java.io.FileInputStream(f);
+        byte[] buf = new byte[(int) f.length()];
+        int off = 0;
+        while (off < buf.length) {
+            int n = fis.read(buf, off, buf.length - off);
+            if (n <= 0) break;
+            off += n;
+        }
+        fis.close();
+        return new String(buf, 0, off, "UTF-8");
+    }
+
+    private String md5Hex(String s) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            byte[] digest = md.digest(s.getBytes("UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < digest.length; i++) {
+                sb.append(String.format("%02x", digest[i]));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return String.valueOf(s.hashCode());
         }
     }
 

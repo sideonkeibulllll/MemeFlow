@@ -97,6 +97,58 @@
       opacity: 1;
     }
     
+    /* 设置里开启「格子常显描述」后：描述变底部通栏，权重一直可见 */
+    .meme-grid.show-info .meme-weight {
+      opacity: 1;
+    }
+    
+    .meme-grid.show-info .meme-tag {
+      opacity: 1;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      max-width: none;
+      border-radius: 0;
+      background: rgba(0, 0, 0, 0.58);
+      padding: 3px 4px;
+      text-align: center;
+    }
+    
+    .setting-inline {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    
+    .setting-inline label {
+      margin: 0;
+    }
+    
+    .toggle-btn {
+      background: #dcdcdc;
+      color: #555;
+      border: none;
+      border-radius: 11px;
+      padding: 4px 15px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: background 0.15s, color 0.15s;
+    }
+    
+    .toggle-btn.on {
+      background: #4a90d9;
+      color: white;
+    }
+    
+    .setting-note {
+      margin: 7px 0 0;
+      font-size: 0.72rem;
+      color: #8a8a8a;
+      line-height: 1.5;
+    }
+    
     .bottom-bar {
       display: flex;
       background: #333;
@@ -591,6 +643,13 @@
         </div>
       </div>
       <div class="modal-section">
+        <div class="setting-inline">
+          <label>格子常显描述</label>
+          <button class="toggle-btn" id="show-info-btn">关</button>
+        </div>
+        <p class="setting-note">开启后每格的描述和权重一直显示；关闭则按住格子才出现</p>
+      </div>
+      <div class="modal-section">
         <label>导入表情包 (zip)</label>
         <button class="import-btn" id="import-btn">点击选择 zip 文件</button>
         <input type="file" id="zip-file-input" accept=".zip,application/zip" style="display:none">
@@ -690,6 +749,7 @@
     var memes = []
     var currentMemes = []
     var gridConfig = { rows: 1, cols: 1 }
+    var showCellInfo = false
     var weights = {}
     var memeTags = {}
     var memeUsage = {}
@@ -786,6 +846,33 @@
       } catch (e) {}
     }
     
+    // 格子常显描述：开启后 .meme-tag / .meme-weight 常驻，不用按住格子
+    function loadShowCellInfo() {
+      try {
+        showCellInfo = localStorage.getItem('meme-show-cell-info') === '1'
+      } catch (e) {
+        showCellInfo = false
+      }
+    }
+    
+    function applyShowCellInfo() {
+      var grid = document.getElementById('meme-grid')
+      if (grid) grid.classList.toggle('show-info', !!showCellInfo)
+      var btn = document.getElementById('show-info-btn')
+      if (btn) {
+        btn.textContent = showCellInfo ? '开' : '关'
+        btn.classList.toggle('on', !!showCellInfo)
+      }
+    }
+    
+    function toggleShowCellInfo() {
+      showCellInfo = !showCellInfo
+      try {
+        localStorage.setItem('meme-show-cell-info', showCellInfo ? '1' : '0')
+      } catch (e) {}
+      applyShowCellInfo()
+    }
+    
     function loadMemeUsage() {
       try {
         var saved = localStorage.getItem('meme-usage')
@@ -830,6 +917,71 @@
     }
     
     // 重新生成索引: 扫描 meme/ 目录, 构建 meme/index.json
+    // 内容指纹：同尺寸的两张图才值得比内容，这里对 base64 算个 djb2 变体
+    function quickContentHash(str) {
+      var h = 5381
+      for (var i = 0; i < str.length; i++) {
+        h = ((h << 5) + h + str.charCodeAt(i)) & 0xffffffff
+      }
+      return str.length + ':' + h
+    }
+    
+    // 哪张更该留下：带 _hash8 的（新版命名）优先于纯 md5 名，
+    // 因为 persona.json 的标注是按新名字挂的，丢了就查不到描述
+    function preferNewName(a, b) {
+      var ra = /_[0-9a-f]{8}\./i.test(a.name) ? 0 : 1
+      var rb = /_[0-9a-f]{8}\./i.test(b.name) ? 0 : 1
+      if (ra !== rb) return ra - rb
+      return a.name < b.name ? -1 : a.name > b.name ? 1 : 0
+    }
+    
+    // 找出内容完全相同的副本，只保留一个
+    async function dropDuplicateContent(entries) {
+      var bySize = {}
+      for (var i = 0; i < entries.length; i++) {
+        var e = entries[i]
+        if (!e.size) continue
+        if (!bySize[e.size]) bySize[e.size] = []
+        bySize[e.size].push(e)
+      }
+    
+      var dropped = {}
+      var groupCount = 0
+    
+      for (var size in bySize) {
+        var group = bySize[size]
+        if (group.length < 2) continue
+        groupCount++
+        group.sort(preferNewName)
+    
+        var seenHash = {}
+        for (var g = 0; g < group.length; g++) {
+          var item = group[g]
+          var h = null
+          try {
+            var r = await Filesystem.readFile({
+              path: 'meme/' + item.folder + '/' + item.name,
+              directory: 'Data'
+            })
+            h = quickContentHash(String(r.data))
+          } catch (err) {
+            continue
+          }
+          if (seenHash[h] !== undefined) {
+            dropped[item.folder + '/' + item.name] = true
+          } else {
+            seenHash[h] = item.folder + '/' + item.name
+          }
+        }
+      }
+    
+      return {
+        keep: entries.filter(function (e) { return !dropped[e.folder + '/' + e.name] }),
+        droppedCount: Object.keys(dropped).length,
+        groupCount: groupCount
+      }
+    }
+    
     async function regenerateIndex() {
       if (!isAndroid || !Filesystem) {
         memes = []
@@ -841,8 +993,7 @@
         } catch (e) {}
 
         var result = await Filesystem.readdir({ path: 'meme', directory: 'Data' })
-        var indexData = {}
-        memes = []
+        var entries = []
 
         for (var i = 0; i < result.files.length; i++) {
           var entry = result.files[i]
@@ -859,26 +1010,34 @@
               folderResult = await Filesystem.readdir({ path: entryPath, directory: 'Data' })
             } catch (e) { continue }
 
-            var folderFiles = []
             for (var j = 0; j < folderResult.files.length; j++) {
               var f = folderResult.files[j]
-              var ext = f.name.split('.').pop().toLowerCase()
-              if (['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(ext) >= 0) {
-                folderFiles.push(f.name)
-                memes.push(entry.name + '/' + f.name)
-              }
-            }
-            if (folderFiles.length > 0) {
-              indexData[entry.name] = folderFiles
+              var fext = f.name.split('.').pop().toLowerCase()
+              if (['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(fext) < 0) continue
+
+              var fstat = null
+              try {
+                fstat = await Filesystem.stat({ path: entryPath + '/' + f.name, directory: 'Data' })
+              } catch (e) {}
+              entries.push({ folder: entry.name, name: f.name, size: fstat ? fstat.size : 0 })
             }
           } else if (stat.type === 'file') {
             var ext = entry.name.split('.').pop().toLowerCase()
-            if (['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(ext) >= 0) {
-              if (!indexData['默认']) indexData['默认'] = []
-              indexData['默认'].push(entry.name)
-              memes.push('默认/' + entry.name)
-            }
+            if (['jpg', 'jpeg', 'png', 'gif', 'webp'].indexOf(ext) < 0) continue
+            entries.push({ folder: '默认', name: entry.name, size: stat.size })
           }
+        }
+
+        // 按内容去重（旧版遗留的 md5 名 vs 新版 hash8 名，指向同一张图）
+        var dedup = await dropDuplicateContent(entries)
+
+        var indexData = {}
+        memes = []
+        for (var k = 0; k < dedup.keep.length; k++) {
+          var it = dedup.keep[k]
+          if (!indexData[it.folder]) indexData[it.folder] = []
+          indexData[it.folder].push(it.name)
+          memes.push(it.folder + '/' + it.name)
         }
 
         await Filesystem.writeFile({
@@ -889,6 +1048,12 @@
         })
 
         preloadQueue = []
+
+        if (dedup.droppedCount > 0) {
+          showToast('索引已重建：' + memes.length + ' 张，去掉 ' + dedup.droppedCount + ' 个重复副本')
+        } else {
+          showToast('索引已重建：' + memes.length + ' 张，无重复')
+        }
       } catch (e) {
         memes = []
       }
@@ -903,10 +1068,14 @@
           })
           var indexData = JSON.parse(indexResult.data)
           memes = []
+          var seenName = {}
           for (var folder in indexData) {
             var files = indexData[folder]
             for (var i = 0; i < files.length; i++) {
-              memes.push(folder + '/' + files[i])
+              var full = folder + '/' + files[i]
+              if (seenName[full]) continue
+              seenName[full] = true
+              memes.push(full)
             }
           }
           return
@@ -918,8 +1087,12 @@
         var response = await fetch('assets/memes.json')
         var flatMemes = await response.json()
         memes = []
+        var seenFlat = {}
         for (var i = 0; i < flatMemes.length; i++) {
-          memes.push('默认/' + flatMemes[i])
+          var fullName = '默认/' + flatMemes[i]
+          if (seenFlat[fullName]) continue
+          seenFlat[fullName] = true
+          memes.push(fullName)
         }
       } catch (e) {
         memes = []
@@ -1563,6 +1736,7 @@
       document.getElementById('grid-cols-input').value = gridConfig.cols
       document.getElementById('grid-custom-section').style.display = 'none'
       document.getElementById('expand-grid-btn').textContent = '展开设置 ▼'
+      applyShowCellInfo()
       document.getElementById('settings-modal').classList.add('show')
     }
     
@@ -2205,6 +2379,7 @@
       }
     })
     document.getElementById('settings-btn').addEventListener('click', openSettings)
+    document.getElementById('show-info-btn').addEventListener('click', toggleShowCellInfo)
     document.getElementById('cancel-btn').addEventListener('click', closeSettings)
     document.getElementById('save-btn').addEventListener('click', saveSettings)
     document.getElementById('import-btn').addEventListener('click', importZip)
@@ -2364,12 +2539,14 @@
       loadWeights()
       loadTags()
       loadGridConfig()
+      loadShowCellInfo()
       loadMemeUsage()
       loadStarred()
       await loadMemes()
       await loadPersonaData()
       mergePersonaIntoTags()
       renderGrid()
+      applyShowCellInfo()
       refreshAll()
 
       if (isAndroid && memes.length > 0) {
