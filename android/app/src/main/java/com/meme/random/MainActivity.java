@@ -2,7 +2,9 @@ package com.meme.random;
 
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageInfo;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.webkit.WebView;
 import android.webkit.ConsoleMessage;
@@ -38,7 +40,9 @@ public class MainActivity extends BridgeActivity {
     private static final String ASSETS_PUBLIC = "public";
     private static final String PREFS_NAME = "MemeFlowPrefs";
     private static final String KEY_ASSETS_COPIED = "assets_copied";
-    private static final String KEY_ASSETS_HASH = "assets_hash";
+    // v2: 1.5.1 因为 readAssetFile 的 available() bug 可能写入了残缺的 hash，
+    // 换 key 名强制 1.5.2 重新同步一次
+    private static final String KEY_ASSETS_HASH = "assets_hash_v2";
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -147,12 +151,14 @@ public class MainActivity extends BridgeActivity {
             int copied = 0;
             int existed = 0;
             int failed = 0;
+            ArrayList<String> okFiles = new ArrayList<>();
 
             for (int i = 0; i < wanted.size(); i++) {
                 String fileName = wanted.get(i);
                 File dest = new File(defaultDir, fileName);
                 if (dest.exists()) {
                     existed++;
+                    okFiles.add(fileName);
                     continue;
                 }
                 try {
@@ -166,6 +172,7 @@ public class MainActivity extends BridgeActivity {
                     os.close();
                     is.close();
                     copied++;
+                    okFiles.add(fileName);
                 } catch (Exception e) {
                     failed++;
                     Log.w(TAG, "跳过图片: " + fileName + " (" + e.getMessage() + ")");
@@ -190,7 +197,7 @@ public class MainActivity extends BridgeActivity {
             }
 
             JSONArray defaultArr = new JSONArray();
-            ArrayList<String> sorted = new ArrayList<>(wanted);
+            ArrayList<String> sorted = new ArrayList<>(okFiles);
             Collections.sort(sorted);
             for (int i = 0; i < sorted.size(); i++) {
                 defaultArr.put(sorted.get(i));
@@ -207,7 +214,26 @@ public class MainActivity extends BridgeActivity {
                     .apply();
 
             Log.d(TAG, "同步完成: 新增 " + copied + ", 已存在 " + existed +
-                    ", 失败 " + failed + ", 清单 " + wanted.size());
+                    ", 失败 " + failed + ", 入库 " + okFiles.size());
+
+            // 关键：前端可能在图还没复制完时就读了 index.json，读到空库。
+            // 复制到新文件后主动刷一次页面，让它拿着完整的 index 重新渲染。
+            if (copied > 0) {
+                final int copiedFinal = copied;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            if (getBridge() != null && getBridge().getWebView() != null) {
+                                Log.d(TAG, "新增 " + copiedFinal + " 张, 重新加载页面");
+                                getBridge().getWebView().reload();
+                            }
+                        } catch (Exception e) {
+                            Log.w(TAG, "reload 失败: " + e.getMessage());
+                        }
+                    }
+                });
+            }
 
         } catch (Exception e) {
             Log.e(TAG, "同步失败: " + e.getMessage());
@@ -275,6 +301,29 @@ public class MainActivity extends BridgeActivity {
 
             Log.d(TAG, "Lite APK 已提取到: " + liteApkFile.getAbsolutePath());
 
+            // 校验版本：待装的 Lite 必须比当前已装的更高，否则弹出来也装不上
+            // （系统会报「已安装更高版本」，用户只会困惑）
+            try {
+                PackageInfo liteInfo = getPackageManager()
+                        .getPackageArchiveInfo(liteApkFile.getAbsolutePath(), 0);
+                PackageInfo selfInfo = getPackageManager()
+                        .getPackageInfo(getPackageName(), 0);
+                if (liteInfo != null && selfInfo != null) {
+                    long liteCode = Build.VERSION.SDK_INT >= 28
+                            ? liteInfo.getLongVersionCode() : liteInfo.versionCode;
+                    long selfCode = Build.VERSION.SDK_INT >= 28
+                            ? selfInfo.getLongVersionCode() : selfInfo.versionCode;
+                    if (liteCode <= selfCode) {
+                        Log.d(TAG, "跳过安装: 内嵌 Lite 版本 " + liteCode +
+                                " 不高于当前 " + selfCode);
+                        return;
+                    }
+                    Log.d(TAG, "版本校验通过: Lite " + liteCode + " > 当前 " + selfCode);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "版本校验失败, 继续尝试安装: " + e.getMessage());
+            }
+
             // 在主线程弹出安装界面
             runOnUiThread(new Runnable() {
                 @Override
@@ -310,10 +359,17 @@ public class MainActivity extends BridgeActivity {
     private String readAssetFile(String path) {
         try {
             InputStream is = getAssets().open(path);
-            byte[] buffer = new byte[is.available()];
-            is.read(buffer);
+            // 不能用 is.available() 分配缓冲区 —— 对 APK 里的压缩资源它不保证返回完整长度，
+            // 之前 memes.json 涨到 28KB 后就只读到一部分，JSON 解析失败，
+            // 结果一个图都不复制，App 里一张图都没有。
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[16384];
+            int len;
+            while ((len = is.read(buffer)) > 0) {
+                bos.write(buffer, 0, len);
+            }
             is.close();
-            return new String(buffer, "UTF-8");
+            return new String(bos.toByteArray(), "UTF-8");
         } catch (Exception e) {
             Log.e(TAG, "读取 assets 文件失败: " + path + " (" + e.getMessage() + ")");
             return null;

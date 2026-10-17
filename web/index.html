@@ -1061,25 +1061,34 @@
 
     async function loadMemes() {
       if (isAndroid && Filesystem) {
-        try {
-          var indexResult = await Filesystem.readFile({
-            path: 'meme/index.json',
-            directory: 'Data'
-          })
-          var indexData = JSON.parse(indexResult.data)
-          memes = []
-          var seenName = {}
-          for (var folder in indexData) {
-            var files = indexData[folder]
-            for (var i = 0; i < files.length; i++) {
-              var full = folder + '/' + files[i]
-              if (seenName[full]) continue
-              seenName[full] = true
-              memes.push(full)
+        // 首次安装时 MainActivity 还在后台复制图，index.json 可能还没写出来。
+        // 最多等 10 秒再判定为空，避免一进来就读到空库、渲染出一张图都没有。
+        for (var attempt = 0; attempt < 20; attempt++) {
+          try {
+            var indexResult = await Filesystem.readFile({
+              path: 'meme/index.json',
+              directory: 'Data'
+            })
+            var indexData = JSON.parse(indexResult.data)
+            var nextMemes = []
+            var seenName = {}
+            for (var folder in indexData) {
+              var files = indexData[folder]
+              if (!Array.isArray(files)) continue
+              for (var i = 0; i < files.length; i++) {
+                var full = folder + '/' + files[i]
+                if (seenName[full]) continue
+                seenName[full] = true
+                nextMemes.push(full)
+              }
             }
-          }
-          return
-        } catch (e) {}
+            if (nextMemes.length > 0) {
+              memes = nextMemes
+              return
+            }
+          } catch (e) {}
+          await new Promise(function (r) { setTimeout(r, 500) })
+        }
         await regenerateIndex()
         return
       }
