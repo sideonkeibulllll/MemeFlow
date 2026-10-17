@@ -161,17 +161,22 @@ public class MainActivity extends BridgeActivity {
                 defaultDir.mkdirs();
             }
 
-            // 清掉上一版留下、这一版不再出厂的图。
-            // 用户自己 ZIP 导入的在 import-XXXX 文件夹里，不在 defaultDir，一个都不会动。
-            int removed = 0;
+            // 增量清理：只删「上一个版本的出厂清单里有、这一版没有」的文件。
+            // 用户自己存进 default/ 的图不在任何 manifest 里，永远不会被误删。
+            File manifestFile = new File(memeDir, ".manifest.json");
             HashSet<String> wantedSet = new HashSet<>(wanted);
-            File[] stale = defaultDir.listFiles();
-            if (stale != null) {
-                for (int i = 0; i < stale.length; i++) {
-                    File f = stale[i];
-                    if (f.isFile() && !wantedSet.contains(f.getName())) {
-                        if (f.delete()) removed++;
+            int removed = 0;
+            if (manifestFile.exists()) {
+                try {
+                    JSONArray lastArr = new JSONArray(getFileText(manifestFile));
+                    for (int i = 0; i < lastArr.length(); i++) {
+                        String oldName = lastArr.getString(i);
+                        if (wantedSet.contains(oldName)) continue;
+                        File f = new File(defaultDir, oldName);
+                        if (f.exists() && f.delete()) removed++;
                     }
+                } catch (Exception e) {
+                    Log.w(TAG, "旧清单解析失败, 本次不清理: " + e.getMessage());
                 }
             }
             if (removed > 0) {
@@ -226,17 +231,41 @@ public class MainActivity extends BridgeActivity {
                 }
             }
 
+            // index = 出厂清单里成功落地的 + default/ 下用户自己放进去的图
+            ArrayList<String> indexFiles = new ArrayList<>(okFiles);
+            File[] allFiles = defaultDir.listFiles();
+            if (allFiles != null) {
+                for (int i = 0; i < allFiles.length; i++) {
+                    File f = allFiles[i];
+                    if (!f.isFile()) continue;
+                    String n = f.getName();
+                    if (wantedSet.contains(n)) continue;
+                    if (!isImageName(n)) continue;
+                    indexFiles.add(n);
+                }
+            }
+            Collections.sort(indexFiles);
+
             JSONArray defaultArr = new JSONArray();
-            ArrayList<String> sorted = new ArrayList<>(okFiles);
-            Collections.sort(sorted);
-            for (int i = 0; i < sorted.size(); i++) {
-                defaultArr.put(sorted.get(i));
+            for (int i = 0; i < indexFiles.size(); i++) {
+                defaultArr.put(indexFiles.get(i));
             }
             root.put(DEFAULT_DIR, defaultArr);
 
             FileOutputStream fos = new FileOutputStream(indexFile);
             fos.write(root.toString().getBytes("UTF-8"));
             fos.close();
+
+            // 记下这一版的出厂清单，下次启动据此判断哪些是「旧出厂图」
+            try {
+                JSONArray manifestArr = new JSONArray();
+                for (int i = 0; i < wanted.size(); i++) manifestArr.put(wanted.get(i));
+                FileOutputStream mfos = new FileOutputStream(manifestFile);
+                mfos.write(manifestArr.toString().getBytes("UTF-8"));
+                mfos.close();
+            } catch (Exception e) {
+                Log.w(TAG, "写 manifest 失败: " + e.getMessage());
+            }
 
             prefs.edit()
                     .putString(KEY_ASSETS_HASH, hash)
@@ -299,6 +328,12 @@ public class MainActivity extends BridgeActivity {
         } else {
             Log.w(TAG, "目录迁移失败: " + from.getName());
         }
+    }
+
+    private boolean isImageName(String name) {
+        String n = name.toLowerCase();
+        return n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".png")
+                || n.endsWith(".gif") || n.endsWith(".webp");
     }
 
     private String getFileText(File f) throws Exception {
